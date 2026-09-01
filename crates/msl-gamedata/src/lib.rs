@@ -180,8 +180,7 @@ pub fn recover_protobuf_schemas_v39(bytes: &[u8]) -> Result<Vec<ProtobufMessageS
                 continue;
             };
             let field_index = first_field + relative_index;
-            let Some((default_type_index, data_index)) = defaults.get(&field_index).copied()
-            else {
+            let Some((default_type_index, data_index)) = defaults.get(&field_index).copied() else {
                 continue;
             };
             if data_index < 0 {
@@ -338,7 +337,10 @@ fn metadata_string(bytes: &[u8], strings: Section, index: i32) -> Result<String>
     Ok(String::from_utf8_lossy(&bytes[start..end]).into_owned())
 }
 
-fn find_backing_field<'a>(base_name: &str, fields: &'a [FieldDefinition]) -> Option<&'a FieldDefinition> {
+fn find_backing_field<'a>(
+    base_name: &str,
+    fields: &'a [FieldDefinition],
+) -> Option<&'a FieldDefinition> {
     let wanted = normalize_identifier(base_name);
     fields.iter().find(|field| {
         field.name.ends_with('_')
@@ -421,7 +423,9 @@ fn read_i32(bytes: &[u8], offset: usize) -> Result<i32> {
     let slice = bytes
         .get(offset..end)
         .with_context(|| format!("i32 read {offset}..{end} exceeds metadata length"))?;
-    Ok(i32::from_le_bytes(slice.try_into().expect("slice length checked")))
+    Ok(i32::from_le_bytes(
+        slice.try_into().expect("slice length checked"),
+    ))
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16> {
@@ -429,7 +433,9 @@ fn read_u16(bytes: &[u8], offset: usize) -> Result<u16> {
     let slice = bytes
         .get(offset..end)
         .with_context(|| format!("u16 read {offset}..{end} exceeds metadata length"))?;
-    Ok(u16::from_le_bytes(slice.try_into().expect("slice length checked")))
+    Ok(u16::from_le_bytes(
+        slice.try_into().expect("slice length checked"),
+    ))
 }
 
 fn is_ascii_text(byte: u8) -> bool {

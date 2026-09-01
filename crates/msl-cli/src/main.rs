@@ -39,6 +39,8 @@ enum Command {
         sprite_catalog: PathBuf,
         #[arg(long, default_value = "build/assets/asset-candidates.json")]
         asset_report: PathBuf,
+        #[arg(long, default_value = "build/gamedata/metadata-inventory.json")]
+        metadata_inventory: PathBuf,
         #[arg(long, default_value = "build/msl.sqlite")]
         database: PathBuf,
     },
@@ -131,6 +133,7 @@ async fn main() -> Result<()> {
             unity_dir,
             sprite_catalog,
             asset_report,
+            metadata_inventory,
             database,
         } => {
             let manifest = msl_ingest::stage_xapk(&xapk, &stage_dir)?;
@@ -144,6 +147,15 @@ async fn main() -> Result<()> {
                     &asset_report,
                 )?),
                 None => None,
+            };
+
+            let global_metadata = unity_dir.join("Managed/Metadata/global-metadata.dat");
+            let metadata = if global_metadata.is_file() {
+                let inventory = msl_gamedata::inspect_global_metadata(&global_metadata)?;
+                msl_gamedata::write_metadata_inventory(&metadata_inventory, &inventory)?;
+                Some(inventory)
+            } else {
+                None
             };
 
             let db = Database::connect(&database).await?;
@@ -167,6 +179,11 @@ async fn main() -> Result<()> {
                     discovery.large_common_candidates.len()
                 );
                 println!("Asset report: {}", asset_report.display());
+            }
+            if let Some(metadata) = metadata {
+                println!("Message-like types: {}", metadata.message_types.len());
+                println!("Manager types: {}", metadata.manager_types.len());
+                println!("Metadata inventory: {}", metadata_inventory.display());
             }
             println!(
                 "Manifest: {}",

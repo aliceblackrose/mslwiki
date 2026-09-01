@@ -1,10 +1,5 @@
 use anyhow::Result;
-use axum::{
-    Json, Router,
-    extract::State,
-    response::Html,
-    routing::get,
-};
+use axum::{Json, Router, extract::State, response::Html, routing::get};
 use msl_db::{Database, ImportRecord};
 use std::net::SocketAddr;
 

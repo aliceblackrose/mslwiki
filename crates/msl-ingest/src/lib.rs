@@ -13,8 +13,8 @@ pub fn stage_xapk(input: &Path, output: &Path) -> Result<ImportManifest> {
         .with_context(|| format!("creating staging directory {}", output.display()))?;
 
     let source_hash = hash_file(input)?;
-    let source_file = File::open(input)
-        .with_context(|| format!("opening XAPK {}", input.display()))?;
+    let source_file =
+        File::open(input).with_context(|| format!("opening XAPK {}", input.display()))?;
     let mut xapk = ZipArchive::new(source_file).context("opening XAPK as ZIP archive")?;
 
     let package = {
@@ -52,9 +52,7 @@ pub fn stage_xapk(input: &Path, output: &Path) -> Result<ImportManifest> {
             .with_context(|| format!("staging split APK {entry_name}"))?;
     }
 
-    files.sort_by(|a, b| {
-        (&a.source_apk, &a.archive_path).cmp(&(&b.source_apk, &b.archive_path))
-    });
+    files.sort_by(|a, b| (&a.source_apk, &a.archive_path).cmp(&(&b.source_apk, &b.archive_path)));
 
     let manifest = ImportManifest {
         source_path: input.display().to_string(),
@@ -138,9 +136,7 @@ fn stage_apk<R: Read + Seek>(
 fn classify_path(path: &str) -> Option<StagedKind> {
     match path {
         "lib/arm64-v8a/libil2cpp.so" => Some(StagedKind::Il2CppBinary),
-        "assets/bin/Data/Managed/Metadata/global-metadata.dat" => {
-            Some(StagedKind::Il2CppMetadata)
-        }
+        "assets/bin/Data/Managed/Metadata/global-metadata.dat" => Some(StagedKind::Il2CppMetadata),
         "assets/CommonSpriteData.txt" => Some(StagedKind::SpriteMetadata),
         "assets/data_list.txt" => Some(StagedKind::DataList),
         "assets/client_gamedata.pb" | "assets/server_gamedata.pb" => Some(StagedKind::GameData),

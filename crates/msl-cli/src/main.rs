@@ -53,10 +53,16 @@ async fn main() -> Result<()> {
             let db = Database::connect(&database).await?;
             let import_id = db.record_import(&manifest).await?;
 
-            println!("Imported {} {}", manifest.package.name, manifest.package.version_name);
+            println!(
+                "Imported {} {}",
+                manifest.package.name, manifest.package.version_name
+            );
             println!("Import ID: {import_id}");
             println!("Staged files: {}", manifest.file_count());
-            println!("Manifest: {}", stage_dir.join("import-manifest.json").display());
+            println!(
+                "Manifest: {}",
+                stage_dir.join("import-manifest.json").display()
+            );
         }
         Command::Serve { database, bind } => {
             let db = Database::connect(&database).await?;

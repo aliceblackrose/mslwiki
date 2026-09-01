@@ -283,7 +283,7 @@ fn require_element_size(section: Section, expected: usize, label: &str) -> Resul
     if section.count == 0 {
         return Ok(());
     }
-    if section.size / section.count != expected || section.size % section.count != 0 {
+    if section.size / section.count != expected || !section.size.is_multiple_of(section.count) {
         bail!(
             "unexpected {label} element size: {}/{} (expected {expected})",
             section.size,

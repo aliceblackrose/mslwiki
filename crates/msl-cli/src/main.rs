@@ -198,7 +198,10 @@ async fn main() -> Result<()> {
                     .sum::<usize>();
                 println!("Metadata version: {:?}", metadata.metadata_version);
                 println!("Message-like strings: {}", metadata.message_types.len());
-                println!("Recovered protobuf messages: {}", metadata.protobuf_messages.len());
+                println!(
+                    "Recovered protobuf messages: {}",
+                    metadata.protobuf_messages.len()
+                );
                 println!("Recovered protobuf field tags: {recovered_fields}");
                 println!("Manager types: {}", metadata.manager_types.len());
                 println!("Metadata inventory: {}", metadata_inventory.display());
@@ -238,7 +241,10 @@ async fn main() -> Result<()> {
                 .sum::<usize>();
             println!("Metadata version: {:?}", inventory.metadata_version);
             println!("Message-like strings: {}", inventory.message_types.len());
-            println!("Recovered protobuf messages: {}", inventory.protobuf_messages.len());
+            println!(
+                "Recovered protobuf messages: {}",
+                inventory.protobuf_messages.len()
+            );
             println!("Recovered protobuf field tags: {recovered_fields}");
             println!("Manager types: {}", inventory.manager_types.len());
             println!(

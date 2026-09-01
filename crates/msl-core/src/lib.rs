@@ -20,6 +20,19 @@ pub enum StagedKind {
     GameData,
 }
 
+impl StagedKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UnityData => "unity_data",
+            Self::Il2CppBinary => "il2cpp_binary",
+            Self::Il2CppMetadata => "il2cpp_metadata",
+            Self::SpriteMetadata => "sprite_metadata",
+            Self::DataList => "data_list",
+            Self::GameData => "game_data",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StagedFile {
     pub source_apk: String,

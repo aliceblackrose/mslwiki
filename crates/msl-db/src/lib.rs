@@ -5,7 +5,7 @@ use sqlx::{
     Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
-use std::{path::Path, str::FromStr};
+use std::path::Path;
 
 #[derive(Clone)]
 pub struct Database {
@@ -26,12 +26,14 @@ pub struct ImportRecord {
 
 impl Database {
     pub async fn connect(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
             std::fs::create_dir_all(parent)?;
         }
 
-        let url = format!("sqlite://{}", path.display());
-        let options = SqliteConnectOptions::from_str(&url)?
+        let options = SqliteConnectOptions::new()
+            .filename(path)
             .create_if_missing(true)
             .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
@@ -134,7 +136,7 @@ impl Database {
             .bind(&file.staged_path)
             .bind(&file.content_hash)
             .bind(file.size as i64)
-            .bind(format!("{:?}", file.kind).to_lowercase())
+            .bind(file.kind.as_str())
             .execute(&mut *tx)
             .await?;
         }

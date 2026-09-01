@@ -3,7 +3,7 @@ use msl_core::{GamePackageMetadata, ImportManifest, StagedFile, StagedKind};
 use serde_json::Value;
 use std::{
     fs::{self, File},
-    io::{Cursor, Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
 };
 use zip::ZipArchive;
@@ -41,12 +41,14 @@ pub fn stage_xapk(input: &Path, output: &Path) -> Result<ImportManifest> {
             continue;
         }
 
-        let mut apk_bytes = Vec::with_capacity(entry.size().try_into().unwrap_or(0));
-        entry
-            .read_to_end(&mut apk_bytes)
+        // Nested APKs can be hundreds of MiB. Spool one split at a time to a
+        // seekable temporary file rather than retaining the whole APK in RAM.
+        let mut temporary_apk = tempfile::tempfile()?;
+        std::io::copy(&mut entry, &mut temporary_apk)
             .with_context(|| format!("reading split APK {entry_name}"))?;
+        temporary_apk.seek(SeekFrom::Start(0))?;
 
-        stage_apk(&entry_name, Cursor::new(apk_bytes), output, &mut files)
+        stage_apk(&entry_name, temporary_apk, output, &mut files)
             .with_context(|| format!("staging split APK {entry_name}"))?;
     }
 
@@ -69,14 +71,20 @@ pub fn stage_xapk(input: &Path, output: &Path) -> Result<ImportManifest> {
     Ok(manifest)
 }
 
-fn stage_apk<R: Read + std::io::Seek>(
+fn stage_apk<R: Read + Seek>(
     source_apk: &str,
     reader: R,
     output: &Path,
     staged_files: &mut Vec<StagedFile>,
 ) -> Result<()> {
     let mut apk = ZipArchive::new(reader)?;
-    let split_name = source_apk.strip_suffix(".apk").unwrap_or(source_apk);
+    let source_file_name = Path::new(source_apk)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("split.apk");
+    let split_name = source_file_name
+        .strip_suffix(".apk")
+        .unwrap_or(source_file_name);
 
     for index in 0..apk.len() {
         let mut entry = apk.by_index(index)?;

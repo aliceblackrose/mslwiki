@@ -72,7 +72,12 @@ pub fn crop_catalog_sprites(
             SpriteOrigin::BottomLeft => atlas_height
                 .checked_sub(sprite.y)
                 .and_then(|value| value.checked_sub(sprite.height))
-                .with_context(|| format!("sprite {} has invalid bottom-left y coordinate", sprite.name))?,
+                .with_context(|| {
+                    format!(
+                        "sprite {} has invalid bottom-left y coordinate",
+                        sprite.name
+                    )
+                })?,
         };
 
         validate_rect(
@@ -92,7 +97,9 @@ pub fn crop_catalog_sprites(
         atlas
             .crop_imm(sprite.x, crop_y, sprite.width, sprite.height)
             .save(&output_path)
-            .with_context(|| format!("saving sprite {} to {}", sprite.name, output_path.display()))?;
+            .with_context(|| {
+                format!("saving sprite {} to {}", sprite.name, output_path.display())
+            })?;
 
         exported.push(ExportedSprite {
             name: sprite.name.clone(),

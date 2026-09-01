@@ -280,10 +280,7 @@ async fn main() -> Result<()> {
                             field.tag, field.cardinality, field.name, backing, type_index
                         );
                     }
-                    _ => println!(
-                        "{:4} {:<8} {}",
-                        field.tag, field.cardinality, field.name
-                    ),
+                    _ => println!("{:4} {:<8} {}", field.tag, field.cardinality, field.name),
                 }
             }
         }

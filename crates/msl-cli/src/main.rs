@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use msl_db::Database;
 use std::{net::SocketAddr, path::PathBuf};
@@ -55,7 +55,7 @@ enum Command {
         output: PathBuf,
     },
 
-    /// Inventory protobuf-like Msg* and manager type names from global-metadata.dat.
+    /// Inventory protobuf-like types and recover field-number constants from global-metadata.dat.
     InspectMetadata {
         #[arg(
             long,
@@ -64,6 +64,16 @@ enum Command {
         metadata: PathBuf,
         #[arg(long, default_value = "build/gamedata/metadata-inventory.json")]
         output: PathBuf,
+    },
+
+    /// Print one recovered protobuf message schema and its exact field tags.
+    ShowSchema {
+        message: String,
+        #[arg(
+            long,
+            default_value = "build/unity/Data/Managed/Metadata/global-metadata.dat"
+        )]
+        metadata: PathBuf,
     },
 
     /// Export primary Unity content and index it into the content-addressed store.
@@ -181,7 +191,15 @@ async fn main() -> Result<()> {
                 println!("Asset report: {}", asset_report.display());
             }
             if let Some(metadata) = metadata {
-                println!("Message-like types: {}", metadata.message_types.len());
+                let recovered_fields = metadata
+                    .protobuf_messages
+                    .iter()
+                    .map(|message| message.fields.len())
+                    .sum::<usize>();
+                println!("Metadata version: {:?}", metadata.metadata_version);
+                println!("Message-like strings: {}", metadata.message_types.len());
+                println!("Recovered protobuf messages: {}", metadata.protobuf_messages.len());
+                println!("Recovered protobuf field tags: {recovered_fields}");
                 println!("Manager types: {}", metadata.manager_types.len());
                 println!("Metadata inventory: {}", metadata_inventory.display());
             }
@@ -213,13 +231,52 @@ async fn main() -> Result<()> {
         Command::InspectMetadata { metadata, output } => {
             let inventory = msl_gamedata::inspect_global_metadata(&metadata)?;
             msl_gamedata::write_metadata_inventory(&output, &inventory)?;
-            println!("Message-like types: {}", inventory.message_types.len());
+            let recovered_fields = inventory
+                .protobuf_messages
+                .iter()
+                .map(|message| message.fields.len())
+                .sum::<usize>();
+            println!("Metadata version: {:?}", inventory.metadata_version);
+            println!("Message-like strings: {}", inventory.message_types.len());
+            println!("Recovered protobuf messages: {}", inventory.protobuf_messages.len());
+            println!("Recovered protobuf field tags: {recovered_fields}");
             println!("Manager types: {}", inventory.manager_types.len());
             println!(
                 "Interesting strings: {}",
                 inventory.interesting_strings.len()
             );
             println!("Metadata inventory: {}", output.display());
+        }
+        Command::ShowSchema { message, metadata } => {
+            let inventory = msl_gamedata::inspect_global_metadata(&metadata)?;
+            let requested = if message.starts_with("Msg") {
+                message
+            } else {
+                format!("Msg{message}")
+            };
+            let schema = inventory
+                .protobuf_messages
+                .iter()
+                .find(|schema| schema.name.eq_ignore_ascii_case(&requested))
+                .with_context(|| format!("protobuf message {requested} was not recovered"))?;
+
+            println!(
+                "{} (type #{}, {} protobuf fields)",
+                schema.name,
+                schema.type_definition_index,
+                schema.fields.len()
+            );
+            for field in &schema.fields {
+                match (&field.backing_field, field.backing_type_index) {
+                    (Some(backing), Some(type_index)) => {
+                        println!(
+                            "{:4} {:<48} backing={} typeIndex={}",
+                            field.tag, field.name, backing, type_index
+                        );
+                    }
+                    _ => println!("{:4} {}", field.tag, field.name),
+                }
+            }
         }
         Command::ExtractAssets {
             asset_ripper,

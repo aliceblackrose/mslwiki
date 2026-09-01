@@ -31,19 +31,14 @@ enum Command {
     /// Stage relevant game files, build the Unity data view, and index the import.
     Import {
         xapk: PathBuf,
-
         #[arg(long, default_value = "build/stage")]
         stage_dir: PathBuf,
-
         #[arg(long, default_value = "build/unity/Data")]
         unity_dir: PathBuf,
-
         #[arg(long, default_value = "build/assets/common-sprites.json")]
         sprite_catalog: PathBuf,
-
         #[arg(long, default_value = "build/assets/asset-candidates.json")]
         asset_report: PathBuf,
-
         #[arg(long, default_value = "build/msl.sqlite")]
         database: PathBuf,
     },
@@ -52,11 +47,20 @@ enum Command {
     InspectAssets {
         #[arg(long, default_value = "build/unity/Data")]
         unity_dir: PathBuf,
-
         #[arg(long, default_value = "build/assets/common-sprites.json")]
         sprite_catalog: PathBuf,
-
         #[arg(long, default_value = "build/assets/asset-candidates.json")]
+        output: PathBuf,
+    },
+
+    /// Inventory protobuf-like Msg* and manager type names from global-metadata.dat.
+    InspectMetadata {
+        #[arg(
+            long,
+            default_value = "build/unity/Data/Managed/Metadata/global-metadata.dat"
+        )]
+        metadata: PathBuf,
+        #[arg(long, default_value = "build/gamedata/metadata-inventory.json")]
         output: PathBuf,
     },
 
@@ -64,16 +68,12 @@ enum Command {
     ExtractAssets {
         #[arg(long)]
         asset_ripper: PathBuf,
-
         #[arg(long, default_value = "build/unity/Data")]
         unity_dir: PathBuf,
-
         #[arg(long, default_value = "build/extracted")]
         output: PathBuf,
-
         #[arg(long, default_value = "build/assets/store")]
         store: PathBuf,
-
         #[arg(long, default_value = "build/assets/extracted-manifest.json")]
         manifest: PathBuf,
     },
@@ -82,10 +82,8 @@ enum Command {
     IndexAssets {
         #[arg(long, default_value = "build/extracted")]
         input: PathBuf,
-
         #[arg(long, default_value = "build/assets/store")]
         store: PathBuf,
-
         #[arg(long, default_value = "build/assets/extracted-manifest.json")]
         manifest: PathBuf,
     },
@@ -94,22 +92,16 @@ enum Command {
     CropSprites {
         #[arg(long)]
         atlas: PathBuf,
-
         #[arg(long, default_value = "build/assets/common-sprites.json")]
         sprite_catalog: PathBuf,
-
         #[arg(long, default_value = "build/assets/sprites")]
         output: PathBuf,
-
         #[arg(long, default_value = "build/assets/sprites-manifest.json")]
         manifest: PathBuf,
-
         #[arg(long, value_enum, default_value_t = CliSpriteOrigin::TopLeft)]
         origin: CliSpriteOrigin,
-
         #[arg(long, default_value = "build/assets/store")]
         store: PathBuf,
-
         #[arg(long, default_value = "build/assets/sprites-store-manifest.json")]
         store_manifest: PathBuf,
     },
@@ -118,7 +110,6 @@ enum Command {
     Serve {
         #[arg(long, default_value = "build/msl.sqlite")]
         database: PathBuf,
-
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: SocketAddr,
     },
@@ -201,6 +192,14 @@ async fn main() -> Result<()> {
                 println!("  {candidate}");
             }
             println!("Report: {}", output.display());
+        }
+        Command::InspectMetadata { metadata, output } => {
+            let inventory = msl_gamedata::inspect_global_metadata(&metadata)?;
+            msl_gamedata::write_metadata_inventory(&output, &inventory)?;
+            println!("Message-like types: {}", inventory.message_types.len());
+            println!("Manager types: {}", inventory.manager_types.len());
+            println!("Interesting strings: {}", inventory.interesting_strings.len());
+            println!("Metadata inventory: {}", output.display());
         }
         Command::ExtractAssets {
             asset_ripper,

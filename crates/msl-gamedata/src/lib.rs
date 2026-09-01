@@ -11,8 +11,8 @@ pub struct MetadataInventory {
 }
 
 pub fn inspect_global_metadata(path: &Path) -> Result<MetadataInventory> {
-    let bytes = fs::read(path)
-        .with_context(|| format!("reading global metadata {}", path.display()))?;
+    let bytes =
+        fs::read(path).with_context(|| format!("reading global metadata {}", path.display()))?;
 
     let strings = extract_ascii_strings(&bytes, 4);
     let message_types = strings

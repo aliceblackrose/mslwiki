@@ -3,6 +3,7 @@ members = [
     "crates/msl-core",
     "crates/msl-ingest",
     "crates/msl-assets",
+    "crates/msl-gamedata",
     "crates/msl-db",
     "crates/msl-web",
     "crates/msl-cli",

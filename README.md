@@ -8,22 +8,27 @@ The project treats game packages as build inputs:
 XAPK/APK
    -> relevant Unity + IL2CPP staging
    -> deterministic Unity Data view
-   -> asset/game-data extraction
+   -> sprite/dependency discovery
+   -> Unity primary-content extraction
    -> normalized SQLite
    -> Axum wiki + JSON API
 ```
 
-## Current milestone
+## What works now
 
-The importer now:
+The importer currently:
 
-1. reads the XAPK metadata;
+1. reads XAPK metadata and game version information;
 2. opens nested split APKs without holding an entire split in RAM;
 3. stages only Unity, IL2CPP, sprite, and game-data inputs;
 4. records source split + BLAKE3 hash for every staged file;
-5. creates a deterministic merged Unity `Data` directory;
+5. creates a deterministic merged Unity `Data` directory with collision detection;
 6. parses `CommonSpriteData.txt` into a normalized sprite catalog;
-7. records the import in SQLite.
+7. scans Unity files for sprite names and cross-file dependencies;
+8. follows `_MainTex` evidence to identify likely large `_common` atlas files;
+9. can invoke a CLI-compatible AssetRipper build in primary/raw extraction mode;
+10. records the package import and staged-file inventory in SQLite;
+11. serves a minimal Axum wiki/API process.
 
 Relevant inputs include:
 
@@ -35,6 +40,8 @@ Relevant inputs include:
 - embedded `client_gamedata.pb` / `server_gamedata.pb` when present
 
 The supplied `1.0.260722032` XAPK contains 347 staged files, 344 unique Unity `Data` paths, and 627 common sprite records.
+
+The dependency scanner identifies `8e2205a495a484cf3ae6ba8a2970aaca` as the current build's large `_common` atlas candidate. This is derived from file references and `_MainTex` evidence rather than hardcoded into the importer.
 
 Raw APK/XAPK files and extracted game assets are intentionally ignored by Git.
 
@@ -56,7 +63,8 @@ This writes:
 build/
 ├── msl.sqlite
 ├── assets/
-│   └── common-sprites.json
+│   ├── common-sprites.json
+│   └── asset-candidates.json
 ├── unity/
 │   └── Data/
 └── stage/
@@ -65,7 +73,26 @@ build/
     └── raw/<split-apk>/...
 ```
 
-The merged `build/unity/Data` directory is the input for the Unity asset extraction backend.
+`asset-candidates.json` records sprite-name matches, `_common`/`_MainTex` markers, and references between merged Unity files.
+
+## Re-run asset discovery
+
+```bash
+cargo run -p mslwiki -- inspect-assets
+```
+
+This scans the already merged `build/unity/Data` tree without unpacking the XAPK again.
+
+## Extract Unity primary content
+
+Point `--asset-ripper` at a CLI-compatible AssetRipper executable:
+
+```bash
+cargo run -p mslwiki -- extract-assets \
+  --asset-ripper "/path/to/AssetRipper"
+```
+
+The adapter passes the merged Unity data directory as input, requests primary/raw content, disables script import, and writes into `build/extracted` by default. The command refuses to overwrite a non-empty extraction directory.
 
 ## Run the wiki
 
@@ -80,12 +107,15 @@ API endpoints currently include:
 - `GET /health`
 - `GET /api/v1/imports`
 
+The site is intentionally minimal at this stage: Astromon/skill/item pages need the game-data schema and asset-to-entity mapping before they can be generated correctly.
+
 ## Next extraction stages
 
-1. Add an AssetRipper adapter and content-addressed extracted-asset manifest.
-2. Resolve the `_common` sprite atlas and crop the 627 catalogued sprite regions.
+1. Index AssetRipper output into a content-addressed asset manifest.
+2. Export the `_common` atlas and crop the 627 catalogued sprite regions.
 3. Recover the real protobuf schema from IL2CPP metadata.
 4. Decode `client_gamedata.pb` / `server_gamedata.pb` into stable `msl-core` domain types.
-5. Generate Astromon, skill, item, dungeon, and update pages from normalized data.
+5. Associate Astromon/skill/item IDs with extracted image assets.
+6. Generate Astromon, skill, item, dungeon, and update pages from normalized data.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

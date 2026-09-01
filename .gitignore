@@ -1,0 +1,9 @@
+/target
+/.cache
+/build
+*.xapk
+*.apk
+*.pb
+*.sqlite
+*.sqlite3
+.env

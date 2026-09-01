@@ -7,6 +7,7 @@ The project treats game packages as build inputs:
 ```text
 XAPK/APK
    -> relevant Unity + IL2CPP staging
+   -> deterministic Unity Data view
    -> asset/game-data extraction
    -> normalized SQLite
    -> Axum wiki + JSON API
@@ -14,9 +15,17 @@ XAPK/APK
 
 ## Current milestone
 
-The initial importer inventories and extracts the files needed for later Unity/IL2CPP processing while preserving the split APK they came from. Every staged file is content-hashed and recorded in SQLite.
+The importer now:
 
-Relevant inputs currently include:
+1. reads the XAPK metadata;
+2. opens nested split APKs without holding an entire split in RAM;
+3. stages only Unity, IL2CPP, sprite, and game-data inputs;
+4. records source split + BLAKE3 hash for every staged file;
+5. creates a deterministic merged Unity `Data` directory;
+6. parses `CommonSpriteData.txt` into a normalized sprite catalog;
+7. records the import in SQLite.
+
+Relevant inputs include:
 
 - `assets/bin/Data/**`
 - `assets/bin/Data/Managed/Metadata/global-metadata.dat`
@@ -24,6 +33,8 @@ Relevant inputs currently include:
 - `assets/CommonSpriteData.txt`
 - `assets/data_list.txt`
 - embedded `client_gamedata.pb` / `server_gamedata.pb` when present
+
+The supplied `1.0.260722032` XAPK contains 347 staged files, 344 unique Unity `Data` paths, and 627 common sprite records.
 
 Raw APK/XAPK files and extracted game assets are intentionally ignored by Git.
 
@@ -44,11 +55,17 @@ This writes:
 ```text
 build/
 ├── msl.sqlite
+├── assets/
+│   └── common-sprites.json
+├── unity/
+│   └── Data/
 └── stage/
     ├── import-manifest.json
     ├── source/manifest.json
     └── raw/<split-apk>/...
 ```
+
+The merged `build/unity/Data` directory is the input for the Unity asset extraction backend.
 
 ## Run the wiki
 
@@ -65,11 +82,10 @@ API endpoints currently include:
 
 ## Next extraction stages
 
-1. Build a deterministic merged Unity `Data` view from staged split APKs.
-2. Add an AssetRipper adapter and content-addressed asset manifest.
-3. Parse `CommonSpriteData.txt` and export atlas sprites.
-4. Recover the real protobuf schema from IL2CPP metadata.
-5. Decode `client_gamedata.pb` / `server_gamedata.pb` into stable `msl-core` domain types.
-6. Generate Astromon, skill, item, dungeon, and update pages from normalized data.
+1. Add an AssetRipper adapter and content-addressed extracted-asset manifest.
+2. Resolve the `_common` sprite atlas and crop the 627 catalogued sprite regions.
+3. Recover the real protobuf schema from IL2CPP metadata.
+4. Decode `client_gamedata.pb` / `server_gamedata.pb` into stable `msl-core` domain types.
+5. Generate Astromon, skill, item, dungeon, and update pages from normalized data.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

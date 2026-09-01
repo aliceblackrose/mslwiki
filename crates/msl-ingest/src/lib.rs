@@ -69,6 +69,56 @@ pub fn stage_xapk(input: &Path, output: &Path) -> Result<ImportManifest> {
     Ok(manifest)
 }
 
+pub fn merge_unity_data(
+    manifest: &ImportManifest,
+    stage_root: &Path,
+    output_data_dir: &Path,
+) -> Result<usize> {
+    if output_data_dir.exists() {
+        fs::remove_dir_all(output_data_dir).with_context(|| {
+            format!(
+                "clearing previous Unity data view {}",
+                output_data_dir.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(output_data_dir)?;
+
+    let mut copied = 0_usize;
+
+    for file in &manifest.files {
+        let Some(relative) = file.archive_path.strip_prefix("assets/bin/Data/") else {
+            continue;
+        };
+
+        let source = stage_root.join(&file.staged_path);
+        let target = output_data_dir.join(safe_archive_path(relative)?);
+
+        if target.exists() {
+            bail!(
+                "Unity data collision for {} while processing {}",
+                relative,
+                file.source_apk
+            );
+        }
+
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        fs::copy(&source, &target).with_context(|| {
+            format!(
+                "copying staged Unity file {} to {}",
+                source.display(),
+                target.display()
+            )
+        })?;
+        copied += 1;
+    }
+
+    Ok(copied)
+}
+
 fn stage_apk<R: Read + Seek>(
     source_apk: &str,
     reader: R,

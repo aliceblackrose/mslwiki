@@ -8,6 +8,7 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+msl-assets = { path = "../msl-assets" }
 msl-db = { path = "../msl-db" }
 msl-ingest = { path = "../msl-ingest" }
 msl-web = { path = "../msl-web" }

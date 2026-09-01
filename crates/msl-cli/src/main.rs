@@ -13,12 +13,18 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Stage relevant Unity and IL2CPP files from an XAPK and index the import.
+    /// Stage relevant game files, build the Unity data view, and index the import.
     Import {
         xapk: PathBuf,
 
         #[arg(long, default_value = "build/stage")]
         stage_dir: PathBuf,
+
+        #[arg(long, default_value = "build/unity/Data")]
+        unity_dir: PathBuf,
+
+        #[arg(long, default_value = "build/assets/common-sprites.json")]
+        sprite_catalog: PathBuf,
 
         #[arg(long, default_value = "build/msl.sqlite")]
         database: PathBuf,
@@ -47,9 +53,15 @@ async fn main() -> Result<()> {
         Command::Import {
             xapk,
             stage_dir,
+            unity_dir,
+            sprite_catalog,
             database,
         } => {
             let manifest = msl_ingest::stage_xapk(&xapk, &stage_dir)?;
+            let unity_files = msl_ingest::merge_unity_data(&manifest, &stage_dir, &unity_dir)?;
+            let sprite_count =
+                msl_assets::export_common_sprite_catalog(&manifest, &stage_dir, &sprite_catalog)?;
+
             let db = Database::connect(&database).await?;
             let import_id = db.record_import(&manifest).await?;
 
@@ -59,10 +71,16 @@ async fn main() -> Result<()> {
             );
             println!("Import ID: {import_id}");
             println!("Staged files: {}", manifest.file_count());
+            println!("Merged Unity files: {unity_files}");
+            match sprite_count {
+                Some(count) => println!("Common sprites: {count}"),
+                None => println!("Common sprites: metadata not present"),
+            }
             println!(
                 "Manifest: {}",
                 stage_dir.join("import-manifest.json").display()
             );
+            println!("Unity Data: {}", unity_dir.display());
         }
         Command::Serve { database, bind } => {
             let db = Database::connect(&database).await?;

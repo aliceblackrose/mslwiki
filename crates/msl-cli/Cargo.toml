@@ -1,0 +1,15 @@
+[package]
+name = "mslwiki"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+msl-db = { path = "../msl-db" }
+msl-ingest = { path = "../msl-ingest" }
+msl-web = { path = "../msl-web" }
+tokio.workspace = true
+tracing-subscriber.workspace = true

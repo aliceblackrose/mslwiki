@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use msl_db::Database;
 use std::{net::SocketAddr, path::PathBuf};
 
@@ -9,6 +9,21 @@ use std::{net::SocketAddr, path::PathBuf};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliSpriteOrigin {
+    TopLeft,
+    BottomLeft,
+}
+
+impl From<CliSpriteOrigin> for msl_assets::SpriteOrigin {
+    fn from(value: CliSpriteOrigin) -> Self {
+        match value {
+            CliSpriteOrigin::TopLeft => Self::TopLeft,
+            CliSpriteOrigin::BottomLeft => Self::BottomLeft,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -73,6 +88,30 @@ enum Command {
 
         #[arg(long, default_value = "build/assets/extracted-manifest.json")]
         manifest: PathBuf,
+    },
+
+    /// Crop every CommonSpriteData region from an exported atlas PNG and index the sprites.
+    CropSprites {
+        #[arg(long)]
+        atlas: PathBuf,
+
+        #[arg(long, default_value = "build/assets/common-sprites.json")]
+        sprite_catalog: PathBuf,
+
+        #[arg(long, default_value = "build/assets/sprites")]
+        output: PathBuf,
+
+        #[arg(long, default_value = "build/assets/sprites-manifest.json")]
+        manifest: PathBuf,
+
+        #[arg(long, value_enum, default_value_t = CliSpriteOrigin::TopLeft)]
+        origin: CliSpriteOrigin,
+
+        #[arg(long, default_value = "build/assets/store")]
+        store: PathBuf,
+
+        #[arg(long, default_value = "build/assets/sprites-store-manifest.json")]
+        store_manifest: PathBuf,
     },
 
     /// Run the local wiki/API server.
@@ -186,6 +225,31 @@ async fn main() -> Result<()> {
             println!("Indexed assets: {}", indexed.files.len());
             println!("Asset store: {}", store.display());
             println!("Asset manifest: {}", manifest.display());
+        }
+        Command::CropSprites {
+            atlas,
+            sprite_catalog,
+            output,
+            manifest,
+            origin,
+            store,
+            store_manifest,
+        } => {
+            let (sprites, indexed) = msl_assets::crop_and_index_common_sprites(
+                &atlas,
+                &sprite_catalog,
+                &output,
+                &manifest,
+                origin.into(),
+                &store,
+                &store_manifest,
+            )?;
+            println!("Atlas: {}x{}", sprites.atlas_width, sprites.atlas_height);
+            println!("Cropped sprites: {}", sprites.sprites.len());
+            println!("Indexed sprite files: {}", indexed.files.len());
+            println!("Sprite output: {}", output.display());
+            println!("Sprite manifest: {}", manifest.display());
+            println!("Asset store: {}", store.display());
         }
         Command::Serve { database, bind } => {
             let db = Database::connect(&database).await?;

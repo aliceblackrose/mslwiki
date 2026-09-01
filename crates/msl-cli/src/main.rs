@@ -131,11 +131,8 @@ async fn main() -> Result<()> {
             sprite_catalog,
             output,
         } => {
-            let report = msl_assets::export_asset_discovery_report(
-                &sprite_catalog,
-                &unity_dir,
-                &output,
-            )?;
+            let report =
+                msl_assets::export_asset_discovery_report(&sprite_catalog, &unity_dir, &output)?;
             println!("Unity files scanned: {}", report.files_scanned);
             println!("Sprite catalog entries: {}", report.sprite_count);
             println!("Evidence files: {}", report.evidence.len());

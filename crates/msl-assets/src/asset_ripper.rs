@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::{fs, path::Path, process::Command};
 
 pub fn run_asset_ripper_cli(executable: &Path, unity_data_dir: &Path, output: &Path) -> Result<()> {
@@ -10,10 +10,7 @@ pub fn run_asset_ripper_cli(executable: &Path, unity_data_dir: &Path, output: &P
     }
 
     if output.exists() && fs::read_dir(output)?.next().transpose()?.is_some() {
-        bail!(
-            "asset extraction output is not empty: {}",
-            output.display()
-        );
+        bail!("asset extraction output is not empty: {}", output.display());
     }
     fs::create_dir_all(output)?;
 

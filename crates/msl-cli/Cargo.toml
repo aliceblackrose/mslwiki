@@ -10,6 +10,7 @@ anyhow.workspace = true
 clap.workspace = true
 msl-assets = { path = "../msl-assets" }
 msl-db = { path = "../msl-db" }
+msl-gamedata = { path = "../msl-gamedata" }
 msl-ingest = { path = "../msl-ingest" }
 msl-web = { path = "../msl-web" }
 tokio.workspace = true

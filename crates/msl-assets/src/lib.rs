@@ -1,3 +1,12 @@
+mod asset_ripper;
+mod discovery;
+
+pub use asset_ripper::run_asset_ripper_cli;
+pub use discovery::{
+    AssetDiscoveryReport, UnityAssetEvidence, discover_asset_evidence,
+    export_asset_discovery_report,
+};
+
 use anyhow::{Context, Result};
 use msl_core::{ImportManifest, StagedKind};
 use serde::{Deserialize, Serialize};
@@ -55,15 +64,20 @@ pub fn export_common_sprite_catalog(
 
     let source = stage_root.join(&staged_file.staged_path);
     let catalog = load_common_sprite_data(&source)?;
+    write_json(output, &catalog)?;
+    Ok(Some(catalog.sprites.len()))
+}
 
-    if let Some(parent) = output.parent()
+pub(crate) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent)?;
     }
 
-    fs::write(output, serde_json::to_vec_pretty(&catalog)?)?;
-    Ok(Some(catalog.sprites.len()))
+    fs::write(path, serde_json::to_vec_pretty(value)?)
+        .with_context(|| format!("writing JSON {}", path.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -276,11 +276,14 @@ async fn main() -> Result<()> {
                 match (&field.backing_field, field.backing_type_index) {
                     (Some(backing), Some(type_index)) => {
                         println!(
-                            "{:4} {:<48} backing={} typeIndex={}",
-                            field.tag, field.name, backing, type_index
+                            "{:4} {:<8} {:<48} backing={} typeIndex={}",
+                            field.tag, field.cardinality, field.name, backing, type_index
                         );
                     }
-                    _ => println!("{:4} {}", field.tag, field.name),
+                    _ => println!(
+                        "{:4} {:<8} {}",
+                        field.tag, field.cardinality, field.name
+                    ),
                 }
             }
         }

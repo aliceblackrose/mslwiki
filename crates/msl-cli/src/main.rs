@@ -45,7 +45,7 @@ enum Command {
         output: PathBuf,
     },
 
-    /// Export primary Unity content using a CLI-compatible AssetRipper executable.
+    /// Export primary Unity content and index it into the content-addressed store.
     ExtractAssets {
         #[arg(long)]
         asset_ripper: PathBuf,
@@ -55,6 +55,24 @@ enum Command {
 
         #[arg(long, default_value = "build/extracted")]
         output: PathBuf,
+
+        #[arg(long, default_value = "build/assets/store")]
+        store: PathBuf,
+
+        #[arg(long, default_value = "build/assets/extracted-manifest.json")]
+        manifest: PathBuf,
+    },
+
+    /// Index an existing extracted asset directory without running AssetRipper.
+    IndexAssets {
+        #[arg(long, default_value = "build/extracted")]
+        input: PathBuf,
+
+        #[arg(long, default_value = "build/assets/store")]
+        store: PathBuf,
+
+        #[arg(long, default_value = "build/assets/extracted-manifest.json")]
+        manifest: PathBuf,
     },
 
     /// Run the local wiki/API server.
@@ -149,9 +167,25 @@ async fn main() -> Result<()> {
             asset_ripper,
             unity_dir,
             output,
+            store,
+            manifest,
         } => {
             msl_assets::run_asset_ripper_cli(&asset_ripper, &unity_dir, &output)?;
+            let indexed = msl_assets::index_extracted_assets(&output, &store, &manifest)?;
             println!("Extracted primary assets to {}", output.display());
+            println!("Indexed assets: {}", indexed.files.len());
+            println!("Asset store: {}", store.display());
+            println!("Asset manifest: {}", manifest.display());
+        }
+        Command::IndexAssets {
+            input,
+            store,
+            manifest,
+        } => {
+            let indexed = msl_assets::index_extracted_assets(&input, &store, &manifest)?;
+            println!("Indexed assets: {}", indexed.files.len());
+            println!("Asset store: {}", store.display());
+            println!("Asset manifest: {}", manifest.display());
         }
         Command::Serve { database, bind } => {
             let db = Database::connect(&database).await?;

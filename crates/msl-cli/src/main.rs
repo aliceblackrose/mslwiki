@@ -198,7 +198,10 @@ async fn main() -> Result<()> {
             msl_gamedata::write_metadata_inventory(&output, &inventory)?;
             println!("Message-like types: {}", inventory.message_types.len());
             println!("Manager types: {}", inventory.manager_types.len());
-            println!("Interesting strings: {}", inventory.interesting_strings.len());
+            println!(
+                "Interesting strings: {}",
+                inventory.interesting_strings.len()
+            );
             println!("Metadata inventory: {}", output.display());
         }
         Command::ExtractAssets {

@@ -31,15 +31,36 @@ pub struct ProtobufMessageSchema {
     pub fields: Vec<ProtobufFieldSchema>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProtobufCardinality {
+    Singular,
+    Repeated,
+    Map,
+}
+
+impl std::fmt::Display for ProtobufCardinality {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Singular => formatter.write_str("singular"),
+            Self::Repeated => formatter.write_str("repeated"),
+            Self::Map => formatter.write_str("map"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtobufFieldSchema {
     pub name: String,
     pub tag: i32,
+    pub cardinality: ProtobufCardinality,
     pub field_number_constant: String,
     pub field_definition_index: usize,
     pub constant_type_index: i32,
     pub backing_field: Option<String>,
     pub backing_type_index: Option<i32>,
+    pub codec_field: Option<String>,
+    pub codec_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -193,14 +214,22 @@ pub fn recover_protobuf_schemas_v39(bytes: &[u8]) -> Result<Vec<ProtobufMessageS
             }
 
             let backing = find_backing_field(base_name, type_fields);
+            let codec = find_codec_field(base_name, type_fields);
+            let cardinality = codec
+                .map(|(cardinality, _)| cardinality)
+                .unwrap_or(ProtobufCardinality::Singular);
+
             protobuf_fields.push(ProtobufFieldSchema {
                 name: base_name.to_owned(),
                 tag,
+                cardinality,
                 field_number_constant: field.name.clone(),
                 field_definition_index: field_index,
                 constant_type_index: default_type_index,
                 backing_field: backing.map(|value| value.name.clone()),
                 backing_type_index: backing.map(|value| value.type_index),
+                codec_field: codec.map(|(_, value)| value.name.clone()),
+                codec_type_index: codec.map(|(_, value)| value.type_index),
             });
         }
         protobuf_fields.sort_by_key(|field| field.tag);
@@ -345,8 +374,40 @@ fn find_backing_field<'a>(
     fields.iter().find(|field| {
         field.name.ends_with('_')
             && !field.name.starts_with("_repeated_")
+            && !field.name.starts_with("_map_")
             && normalize_identifier(field.name.trim_end_matches('_')) == wanted
     })
+}
+
+fn find_codec_field<'a>(
+    base_name: &str,
+    fields: &'a [FieldDefinition],
+) -> Option<(ProtobufCardinality, &'a FieldDefinition)> {
+    let wanted = normalize_identifier(base_name);
+
+    for field in fields {
+        if let Some(codec_name) = field
+            .name
+            .strip_prefix("_map_")
+            .and_then(|value| value.strip_suffix("_codec"))
+            && normalize_identifier(codec_name) == wanted
+        {
+            return Some((ProtobufCardinality::Map, field));
+        }
+    }
+
+    for field in fields {
+        if let Some(codec_name) = field
+            .name
+            .strip_prefix("_repeated_")
+            .and_then(|value| value.strip_suffix("_codec"))
+            && normalize_identifier(codec_name) == wanted
+        {
+            return Some((ProtobufCardinality::Repeated, field));
+        }
+    }
+
+    None
 }
 
 fn normalize_identifier(value: &str) -> String {
@@ -504,5 +565,29 @@ mod tests {
         let field = find_backing_field("Monsters", &fields).unwrap();
         assert_eq!(field.name, "monsters_");
         assert_eq!(field.type_index, 2);
+    }
+
+    #[test]
+    fn classifies_repeated_and_map_codecs() {
+        let fields = vec![
+            FieldDefinition {
+                name: "_repeated_monsters_codec".to_owned(),
+                type_index: 10,
+            },
+            FieldDefinition {
+                name: "_map_uidToRandoms_codec".to_owned(),
+                type_index: 11,
+            },
+        ];
+
+        let (kind, repeated) = find_codec_field("Monsters", &fields).unwrap();
+        assert_eq!(kind, ProtobufCardinality::Repeated);
+        assert_eq!(repeated.type_index, 10);
+
+        let (kind, map) = find_codec_field("UidToRandoms", &fields).unwrap();
+        assert_eq!(kind, ProtobufCardinality::Map);
+        assert_eq!(map.type_index, 11);
+
+        assert!(find_codec_field("Name", &fields).is_none());
     }
 }

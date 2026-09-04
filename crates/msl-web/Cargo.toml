@@ -9,4 +9,5 @@ repository.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 msl-db = { path = "../msl-db" }
+serde.workspace = true
 tokio.workspace = true

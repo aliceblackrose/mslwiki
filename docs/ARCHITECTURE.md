@@ -12,7 +12,16 @@ It also creates the deterministic merged Unity `Data` view. A conflicting duplic
 
 ### `msl-assets`
 
-Owns MSL/Unity asset metadata processing after staging. It currently parses `CommonSpriteData.txt` and exports a normalized JSON catalog. The extraction backend and web asset conversion will live here rather than in the server.
+Owns MSL/Unity asset processing after staging. It parses `CommonSpriteData.txt`, performs dependency discovery, owns the native Unity extraction backend, converts supported Unity objects into web assets, and manages the content-addressed asset store.
+
+The Unity backend is intentionally layered:
+
+1. **container layer** — detect UnityFS bundles, parse block/directory metadata, decompress blocks, and expose safe bundle entries;
+2. **serialized-file layer** — parse Unity serialized-file headers, object tables, type trees, and external resource references;
+3. **object layer** — decode only the object classes MSL needs first (`Texture2D`, `Sprite`, `TextAsset`, and selected `MonoBehaviour` payloads);
+4. **conversion layer** — emit deterministic PNG/JSON output for the rest of the pipeline.
+
+The first layer is implemented in-tree and does not invoke AssetRipper or another extraction executable.
 
 ### `msl-core`
 
@@ -28,7 +37,7 @@ Axum HTML and JSON API. It only consumes normalized database data; it does not p
 
 ### `msl-cli`
 
-Composition root for commands such as `import` and `serve`.
+Composition root for commands such as `import`, `extract-assets`, and `serve`.
 
 ## Extraction pipeline
 
@@ -51,7 +60,7 @@ XAPK
                                           |
                               +-----------+-----------+
                               |                       |
-                        Unity extraction        sprite catalog
+                    native Unity extraction      sprite catalog
                               |                       |
                               +-----------+-----------+
                                           v
@@ -68,15 +77,20 @@ XAPK
 
 ## Asset extraction plan
 
-The Unity extraction integration is an adapter, not a dependency of the website. Rust owns orchestration and post-processing:
+The Unity extraction backend lives inside `msl-assets`; the website never depends on Unity parsing details.
 
 1. Resolve the correct Unity data files from split APKs.
 2. Build a collision-checked merged Unity `Data` directory.
-3. Run the configured Unity extraction backend.
-4. Hash every exported object with BLAKE3.
-5. Normalize images to web-friendly output.
-6. Use `CommonSpriteData.txt` to crop known atlas regions.
-7. Store logical asset keys separately from physical content-addressed files.
+3. Detect and unpack UnityFS bundles with the native Rust container parser.
+4. Preserve standalone serialized/resource files so no source data is discarded before object decoding exists.
+5. Parse serialized files and type trees for the object classes required by MSL.
+6. Resolve external resource streams such as `.resS` texture payloads.
+7. Decode supported textures and normalize images to PNG.
+8. Hash every exported object with BLAKE3.
+9. Use `CommonSpriteData.txt` to crop known atlas regions.
+10. Store logical asset keys separately from physical content-addressed files.
+
+The UnityFS container parser supports uncompressed, LZ4/LZ4HC, and LZMA blocks, validates ranges and decompressed sizes, handles block-info-at-end/alignment flags, and rejects bundle paths that could escape the extraction root.
 
 The supplied build has 344 unique Unity `Data` paths with no collisions. `CommonSpriteData.txt` contains 627 sprite records; `_common` sprite names are referenced from hashed Unity files, which gives us the next link to resolve to the underlying atlas texture.
 

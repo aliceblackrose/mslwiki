@@ -34,6 +34,15 @@ pub struct SerializedAssetExportReport {
     pub issues: Vec<AssetExportIssue>,
 }
 
+impl SerializedAssetExportReport {
+    pub fn best_common_atlas(&self) -> Option<&TextureExport> {
+        self.textures
+            .iter()
+            .filter(|texture| texture.name.eq_ignore_ascii_case("_common"))
+            .max_by_key(|texture| texture.width.saturating_mul(texture.height))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextureExport {
     pub source: String,
@@ -162,12 +171,12 @@ pub fn export_serialized_assets(
         }
     }
 
-    report
-        .textures
-        .sort_by(|left, right| (&left.name, &left.source, left.path_id).cmp(&(&right.name, &right.source, right.path_id)));
-    report
-        .text_assets
-        .sort_by(|left, right| (&left.name, &left.source, left.path_id).cmp(&(&right.name, &right.source, right.path_id)));
+    report.textures.sort_by(|left, right| {
+        (&left.name, &left.source, left.path_id).cmp(&(&right.name, &right.source, right.path_id))
+    });
+    report.text_assets.sort_by(|left, right| {
+        (&left.name, &left.source, left.path_id).cmp(&(&right.name, &right.source, right.path_id))
+    });
     report.issues.sort_by(|left, right| {
         (&left.source, left.path_id, left.class_id, &left.error).cmp(&(
             &right.source,
@@ -269,7 +278,11 @@ fn export_text_asset(
     let mut reader = ObjectReader::new(bytes, file.endian);
     let name = reader.read_aligned_string()?;
     let data = reader.read_byte_array()?;
-    let extension = if is_probably_text(&data) { "txt" } else { "bytes" };
+    let extension = if is_probably_text(&data) {
+        "txt"
+    } else {
+        "bytes"
+    };
     let output = objects_root.join("text").join(unique_object_name(
         &name,
         relative_source,
@@ -279,8 +292,7 @@ fn export_text_asset(
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&output, &data)
-        .with_context(|| format!("writing TextAsset {}", output.display()))?;
+    fs::write(&output, &data).with_context(|| format!("writing TextAsset {}", output.display()))?;
 
     Ok(TextAssetExport {
         source: relative_source.to_owned(),
@@ -334,7 +346,10 @@ impl ResourceCatalog {
         let mut by_name = BTreeMap::<String, Vec<PathBuf>>::new();
         for path in files {
             if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-                by_name.entry(name.to_owned()).or_default().push(path.clone());
+                by_name
+                    .entry(name.to_owned())
+                    .or_default()
+                    .push(path.clone());
             }
         }
         for paths in by_name.values_mut() {
@@ -366,7 +381,9 @@ impl ResourceCatalog {
                 return Ok(paths[0].clone());
             }
             if let Some(parent) = serialized_path.parent()
-                && let Some(found) = paths.iter().find(|candidate| candidate.parent() == Some(parent))
+                && let Some(found) = paths
+                    .iter()
+                    .find(|candidate| candidate.parent() == Some(parent))
             {
                 return Ok(found.clone());
             }
@@ -403,9 +420,9 @@ fn collect_extracted_inputs(root: &Path) -> Result<Vec<PathBuf>> {
         }
         let mut pending = vec![directory];
         while let Some(current) = pending.pop() {
-            for entry in fs::read_dir(&current)
-                .with_context(|| format!("reading extracted Unity directory {}", current.display()))?
-            {
+            for entry in fs::read_dir(&current).with_context(|| {
+                format!("reading extracted Unity directory {}", current.display())
+            })? {
                 let entry = entry?;
                 let file_type = entry.file_type()?;
                 if file_type.is_dir() {
@@ -464,5 +481,41 @@ mod tests {
         let second = unique_object_name("_common", "bundles/b/CAB", 7, "png");
         assert_ne!(first, second);
         assert!(first.starts_with("_common~"));
+    }
+
+    #[test]
+    fn chooses_largest_common_atlas() {
+        let report = SerializedAssetExportReport {
+            files_scanned: 0,
+            serialized_files: 0,
+            objects_scanned: 0,
+            texture_objects: 2,
+            textures_exported: 2,
+            text_asset_objects: 0,
+            text_assets_exported: 0,
+            textures: vec![
+                texture_export("_common", 256, 256, "small.png"),
+                texture_export("_COMMON", 1024, 2048, "large.png"),
+            ],
+            text_assets: Vec::new(),
+            issues: Vec::new(),
+        };
+
+        assert_eq!(report.best_common_atlas().unwrap().output, "large.png");
+    }
+
+    fn texture_export(name: &str, width: usize, height: usize, output: &str) -> TextureExport {
+        TextureExport {
+            source: "CAB".to_owned(),
+            path_id: 1,
+            name: name.to_owned(),
+            width,
+            height,
+            mip_count: 1,
+            texture_format: 4,
+            texture_format_name: "RGBA32".to_owned(),
+            data_source: "inline".to_owned(),
+            output: output.to_owned(),
+        }
     }
 }

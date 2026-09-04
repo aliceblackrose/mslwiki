@@ -1,13 +1,13 @@
-mod asset_ripper;
 mod discovery;
+mod extractor;
 mod sprites;
 mod store;
 
-pub use asset_ripper::run_asset_ripper_cli;
 pub use discovery::{
     AssetDiscoveryReport, UnityAssetEvidence, discover_asset_evidence,
     export_asset_discovery_report,
 };
+pub use extractor::{UnityExtractionReport, extract_unity_content};
 pub use sprites::{
     ExportedSprite, SpriteExportManifest, SpriteOrigin, crop_and_index_common_sprites,
     crop_catalog_sprites, crop_common_sprites,

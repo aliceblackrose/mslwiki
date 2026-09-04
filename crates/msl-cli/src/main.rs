@@ -76,10 +76,8 @@ enum Command {
         metadata: PathBuf,
     },
 
-    /// Export primary Unity content and index it into the content-addressed store.
+    /// Extract UnityFS content with the built-in Rust backend and index it.
     ExtractAssets {
-        #[arg(long)]
-        asset_ripper: PathBuf,
         #[arg(long, default_value = "build/unity/Data")]
         unity_dir: PathBuf,
         #[arg(long, default_value = "build/extracted")]
@@ -90,7 +88,7 @@ enum Command {
         manifest: PathBuf,
     },
 
-    /// Index an existing extracted asset directory without running AssetRipper.
+    /// Index an existing extracted asset directory without running extraction.
     IndexAssets {
         #[arg(long, default_value = "build/extracted")]
         input: PathBuf,
@@ -285,15 +283,19 @@ async fn main() -> Result<()> {
             }
         }
         Command::ExtractAssets {
-            asset_ripper,
             unity_dir,
             output,
             store,
             manifest,
         } => {
-            msl_assets::run_asset_ripper_cli(&asset_ripper, &unity_dir, &output)?;
+            let extraction = msl_assets::extract_unity_content(&unity_dir, &output)?;
             let indexed = msl_assets::index_extracted_assets(&output, &store, &manifest)?;
-            println!("Extracted primary assets to {}", output.display());
+            println!("Unity files scanned: {}", extraction.files_scanned);
+            println!("UnityFS bundles extracted: {}", extraction.bundles_extracted);
+            println!("UnityFS entries extracted: {}", extraction.bundle_entries);
+            println!("Standalone Unity files preserved: {}", extraction.passthrough_files);
+            println!("Extracted bytes: {}", extraction.extracted_bytes);
+            println!("Extracted content: {}", output.display());
             println!("Indexed assets: {}", indexed.files.len());
             println!("Asset store: {}", store.display());
             println!("Asset manifest: {}", manifest.display());

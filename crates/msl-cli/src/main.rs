@@ -291,9 +291,15 @@ async fn main() -> Result<()> {
             let extraction = msl_assets::extract_unity_content(&unity_dir, &output)?;
             let indexed = msl_assets::index_extracted_assets(&output, &store, &manifest)?;
             println!("Unity files scanned: {}", extraction.files_scanned);
-            println!("UnityFS bundles extracted: {}", extraction.bundles_extracted);
+            println!(
+                "UnityFS bundles extracted: {}",
+                extraction.bundles_extracted
+            );
             println!("UnityFS entries extracted: {}", extraction.bundle_entries);
-            println!("Standalone Unity files preserved: {}", extraction.passthrough_files);
+            println!(
+                "Standalone Unity files preserved: {}",
+                extraction.passthrough_files
+            );
             println!("Extracted bytes: {}", extraction.extracted_bytes);
             println!("Extracted content: {}", output.display());
             println!("Indexed assets: {}", indexed.files.len());

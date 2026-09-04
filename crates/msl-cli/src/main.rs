@@ -76,12 +76,14 @@ enum Command {
         metadata: PathBuf,
     },
 
-    /// Extract UnityFS content with the built-in Rust backend and index it.
+    /// Extract Unity containers and decoded primary objects with the built-in Rust backend.
     ExtractAssets {
         #[arg(long, default_value = "build/unity/Data")]
         unity_dir: PathBuf,
         #[arg(long, default_value = "build/extracted")]
         output: PathBuf,
+        #[arg(long, default_value = "build/assets/unity-objects.json")]
+        objects_manifest: PathBuf,
         #[arg(long, default_value = "build/assets/store")]
         store: PathBuf,
         #[arg(long, default_value = "build/assets/extracted-manifest.json")]
@@ -285,10 +287,12 @@ async fn main() -> Result<()> {
         Command::ExtractAssets {
             unity_dir,
             output,
+            objects_manifest,
             store,
             manifest,
         } => {
             let extraction = msl_assets::extract_unity_content(&unity_dir, &output)?;
+            let objects = msl_assets::export_serialized_assets(&output, &objects_manifest)?;
             let indexed = msl_assets::index_extracted_assets(&output, &store, &manifest)?;
             println!("Unity files scanned: {}", extraction.files_scanned);
             println!(
@@ -301,6 +305,14 @@ async fn main() -> Result<()> {
                 extraction.passthrough_files
             );
             println!("Extracted bytes: {}", extraction.extracted_bytes);
+            println!("Serialized files: {}", objects.serialized_files);
+            println!("Serialized objects scanned: {}", objects.objects_scanned);
+            println!("Texture2D objects: {}", objects.texture_objects);
+            println!("Texture2D PNGs exported: {}", objects.textures_exported);
+            println!("TextAsset objects: {}", objects.text_asset_objects);
+            println!("TextAssets exported: {}", objects.text_assets_exported);
+            println!("Object export issues: {}", objects.issues.len());
+            println!("Object manifest: {}", objects_manifest.display());
             println!("Extracted content: {}", output.display());
             println!("Indexed assets: {}", indexed.files.len());
             println!("Asset store: {}", store.display());

@@ -42,7 +42,10 @@ struct NodeInfo {
     path: String,
 }
 
-pub fn extract_unity_content(unity_data_dir: &Path, output: &Path) -> Result<UnityExtractionReport> {
+pub fn extract_unity_content(
+    unity_data_dir: &Path,
+    output: &Path,
+) -> Result<UnityExtractionReport> {
     if !unity_data_dir.is_dir() {
         bail!(
             "Unity data directory does not exist: {}",
@@ -125,24 +128,28 @@ fn is_unityfs(bytes: &[u8]) -> bool {
 fn parse_unityfs(bytes: &[u8]) -> Result<Vec<UnityFsEntry>> {
     let mut reader = BeReader::new(bytes);
     let signature = reader.read_cstring()?;
-    ensure!(signature == "UnityFS", "unsupported Unity bundle signature {signature:?}");
+    ensure!(
+        signature == "UnityFS",
+        "unsupported Unity bundle signature {signature:?}"
+    );
 
     let format = reader.read_u32()?;
     ensure!(format >= 6, "unsupported UnityFS format version {format}");
 
     let _minimum_player_version = reader.read_cstring()?;
     let _engine_version = reader.read_cstring()?;
-    let declared_size = usize::try_from(reader.read_u64()?).context("UnityFS size does not fit usize")?;
+    let declared_size =
+        usize::try_from(reader.read_u64()?).context("UnityFS size does not fit usize")?;
     ensure!(
         declared_size == 0 || declared_size <= bytes.len(),
         "UnityFS bundle is truncated: header declares {declared_size} bytes, file has {}",
         bytes.len()
     );
 
-    let compressed_info_size =
-        usize::try_from(reader.read_u32()?).context("UnityFS block-info size does not fit usize")?;
-    let uncompressed_info_size =
-        usize::try_from(reader.read_u32()?).context("UnityFS block-info size does not fit usize")?;
+    let compressed_info_size = usize::try_from(reader.read_u32()?)
+        .context("UnityFS block-info size does not fit usize")?;
+    let uncompressed_info_size = usize::try_from(reader.read_u32()?)
+        .context("UnityFS block-info size does not fit usize")?;
     let archive_flags = reader.read_u32()?;
 
     if format >= 7 {
@@ -188,8 +195,9 @@ fn parse_unityfs(bytes: &[u8]) -> Result<Vec<UnityFsEntry>> {
         let compressed = bytes
             .get(data_position..block_end)
             .context("UnityFS data block exceeds file size")?;
-        let decompressed = decompress_data(compressed, block.uncompressed_size, u32::from(block.flags))
-            .context("decompressing UnityFS data block")?;
+        let decompressed =
+            decompress_data(compressed, block.uncompressed_size, u32::from(block.flags))
+                .context("decompressing UnityFS data block")?;
         storage.extend_from_slice(&decompressed);
         data_position = block_end;
     }
@@ -243,8 +251,10 @@ fn parse_block_info(bytes: &[u8]) -> Result<(Vec<BlockInfo>, Vec<NodeInfo>)> {
 
     let mut nodes = Vec::with_capacity(node_count);
     for _ in 0..node_count {
-        let offset = usize::try_from(reader.read_u64()?).context("UnityFS node offset does not fit usize")?;
-        let size = usize::try_from(reader.read_u64()?).context("UnityFS node size does not fit usize")?;
+        let offset = usize::try_from(reader.read_u64()?)
+            .context("UnityFS node offset does not fit usize")?;
+        let size =
+            usize::try_from(reader.read_u64()?).context("UnityFS node size does not fit usize")?;
         let _flags = reader.read_u32()?;
         let path = reader.read_cstring()?;
         nodes.push(NodeInfo { offset, size, path });
@@ -263,8 +273,9 @@ fn decompress_data(input: &[u8], expected_size: usize, flags: u32) -> Result<Vec
                 .context("decompressing LZMA data")?;
             output
         }
-        2 | 3 => lz4_flex::block::decompress(input, expected_size)
-            .context("decompressing LZ4 data")?,
+        2 | 3 => {
+            lz4_flex::block::decompress(input, expected_size).context("decompressing LZ4 data")?
+        }
         4 => bail!("UnityFS LZHAM compression is not supported"),
         other => bail!("unknown UnityFS compression type {other}"),
     };
@@ -314,7 +325,10 @@ fn safe_bundle_path(path: &str) -> Result<PathBuf> {
     let normalized = path.replace('\\', "/");
     let path = Path::new(&normalized);
     ensure!(!path.as_os_str().is_empty(), "UnityFS node path is empty");
-    ensure!(!path.is_absolute(), "unsafe UnityFS node path: {normalized}");
+    ensure!(
+        !path.is_absolute(),
+        "unsafe UnityFS node path: {normalized}"
+    );
 
     let mut safe = PathBuf::new();
     for component in path.components() {
@@ -338,11 +352,15 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, bytes).with_context(|| format!("writing extracted Unity file {}", path.display()))
+    fs::write(path, bytes)
+        .with_context(|| format!("writing extracted Unity file {}", path.display()))
 }
 
 fn align_offset(value: usize, alignment: usize) -> Result<usize> {
-    ensure!(alignment.is_power_of_two(), "alignment must be a power of two");
+    ensure!(
+        alignment.is_power_of_two(),
+        "alignment must be a power of two"
+    );
     let mask = alignment - 1;
     value
         .checked_add(mask)
@@ -366,7 +384,10 @@ impl<'a> BeReader<'a> {
 
     fn align(&mut self, alignment: usize) -> Result<()> {
         let aligned = align_offset(self.position, alignment)?;
-        ensure!(aligned <= self.bytes.len(), "UnityFS alignment exceeds file size");
+        ensure!(
+            aligned <= self.bytes.len(),
+            "UnityFS alignment exceeds file size"
+        );
         self.position = aligned;
         Ok(())
     }
@@ -433,7 +454,8 @@ mod tests {
 
     #[test]
     fn parses_lz4_unityfs_block() {
-        let payload = b"a UnityFS payload that compresses well a UnityFS payload that compresses well";
+        let payload =
+            b"a UnityFS payload that compresses well a UnityFS payload that compresses well";
         let bundle = build_test_bundle(payload, true);
         let entries = parse_unityfs(&bundle).unwrap();
 
@@ -456,7 +478,10 @@ mod tests {
         assert_eq!(report.bundles_extracted, 1);
         assert_eq!(report.bundle_entries, 1);
         assert_eq!(report.passthrough_files, 1);
-        assert_eq!(fs::read(output.join("bundles/bundle/CAB-test")).unwrap(), b"atlas");
+        assert_eq!(
+            fs::read(output.join("bundles/bundle/CAB-test")).unwrap(),
+            b"atlas"
+        );
         assert_eq!(
             fs::read(output.join("raw/sharedassets0.assets")).unwrap(),
             b"serialized"

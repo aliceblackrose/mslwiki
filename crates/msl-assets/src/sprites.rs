@@ -2,7 +2,7 @@ use crate::{CommonSpriteData, index_extracted_assets, load_common_sprite_data, w
 use anyhow::{Context, Result, bail};
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
+use std::{collections::BTreeSet, fs, path::Path};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -52,10 +52,15 @@ pub fn crop_catalog_sprites(
         .with_context(|| format!("opening sprite atlas {}", atlas_path.display()))?;
     let (atlas_width, atlas_height) = atlas.dimensions();
 
+    if output_dir.exists() {
+        fs::remove_dir_all(output_dir)
+            .with_context(|| format!("clearing sprite output {}", output_dir.display()))?;
+    }
     fs::create_dir_all(output_dir)
         .with_context(|| format!("creating sprite output {}", output_dir.display()))?;
 
     let mut exported = Vec::with_capacity(catalog.sprites.len());
+    let mut output_names = BTreeSet::new();
     for sprite in &catalog.sprites {
         validate_rect(
             sprite.name.as_str(),
@@ -92,6 +97,13 @@ pub fn crop_catalog_sprites(
 
         let safe_name = sanitize_filename(&sprite.name);
         let output_name = format!("{safe_name}.png");
+        if !output_names.insert(output_name.clone()) {
+            bail!(
+                "sprite output filename collision after sanitizing {}: {}",
+                sprite.name,
+                output_name
+            );
+        }
         let output_path = output_dir.join(&output_name);
 
         atlas
@@ -249,6 +261,66 @@ mod tests {
         let cropped = image::open(output_dir.join("top-left.png")).unwrap();
         assert_eq!(cropped.dimensions(), (2, 2));
         assert_eq!(cropped.get_pixel(0, 0).0, [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn clears_stale_sprite_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let atlas_path = temp.path().join("atlas.png");
+        let output_dir = temp.path().join("sprites");
+        let manifest_path = temp.path().join("sprites.json");
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(output_dir.join("stale.png"), b"stale").unwrap();
+        ImageBuffer::<Rgba<u8>, Vec<u8>>::new(4, 4)
+            .save(&atlas_path)
+            .unwrap();
+
+        let catalog = CommonSpriteData {
+            sprites: vec![sprite("fresh", 0, 0, 1, 1)],
+            sprite_indices: json!({}),
+        };
+
+        crop_catalog_sprites(
+            &atlas_path,
+            &catalog,
+            &output_dir,
+            &manifest_path,
+            SpriteOrigin::TopLeft,
+        )
+        .unwrap();
+
+        assert!(!output_dir.join("stale.png").exists());
+        assert!(output_dir.join("fresh.png").is_file());
+    }
+
+    #[test]
+    fn rejects_sanitized_filename_collision() {
+        let temp = tempfile::tempdir().unwrap();
+        let atlas_path = temp.path().join("atlas.png");
+        let output_dir = temp.path().join("sprites");
+        let manifest_path = temp.path().join("sprites.json");
+        ImageBuffer::<Rgba<u8>, Vec<u8>>::new(4, 4)
+            .save(&atlas_path)
+            .unwrap();
+
+        let catalog = CommonSpriteData {
+            sprites: vec![
+                sprite("same/name", 0, 0, 1, 1),
+                sprite("same?name", 1, 0, 1, 1),
+            ],
+            sprite_indices: json!({}),
+        };
+
+        let error = crop_catalog_sprites(
+            &atlas_path,
+            &catalog,
+            &output_dir,
+            &manifest_path,
+            SpriteOrigin::TopLeft,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("filename collision"));
     }
 
     #[test]

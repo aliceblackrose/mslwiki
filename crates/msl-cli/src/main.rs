@@ -76,21 +76,31 @@ enum Command {
         metadata: PathBuf,
     },
 
-    /// Export primary Unity content and index it into the content-addressed store.
+    /// Extract Unity content, decoded objects, and the MSL common sprite atlas in Rust.
     ExtractAssets {
-        #[arg(long)]
-        asset_ripper: PathBuf,
         #[arg(long, default_value = "build/unity/Data")]
         unity_dir: PathBuf,
         #[arg(long, default_value = "build/extracted")]
         output: PathBuf,
+        #[arg(long, default_value = "build/assets/unity-objects.json")]
+        objects_manifest: PathBuf,
+        #[arg(long, default_value = "build/assets/common-sprites.json")]
+        sprite_catalog: PathBuf,
+        #[arg(long, default_value = "build/assets/sprites")]
+        sprite_output: PathBuf,
+        #[arg(long, default_value = "build/assets/sprites-manifest.json")]
+        sprite_manifest: PathBuf,
+        #[arg(long, value_enum, default_value_t = CliSpriteOrigin::TopLeft)]
+        sprite_origin: CliSpriteOrigin,
         #[arg(long, default_value = "build/assets/store")]
         store: PathBuf,
+        #[arg(long, default_value = "build/assets/sprites-store-manifest.json")]
+        sprite_store_manifest: PathBuf,
         #[arg(long, default_value = "build/assets/extracted-manifest.json")]
         manifest: PathBuf,
     },
 
-    /// Index an existing extracted asset directory without running AssetRipper.
+    /// Index an existing extracted asset directory without running extraction.
     IndexAssets {
         #[arg(long, default_value = "build/extracted")]
         input: PathBuf,
@@ -285,15 +295,81 @@ async fn main() -> Result<()> {
             }
         }
         Command::ExtractAssets {
-            asset_ripper,
             unity_dir,
             output,
+            objects_manifest,
+            sprite_catalog,
+            sprite_output,
+            sprite_manifest,
+            sprite_origin,
             store,
+            sprite_store_manifest,
             manifest,
         } => {
-            msl_assets::run_asset_ripper_cli(&asset_ripper, &unity_dir, &output)?;
+            let extraction = msl_assets::extract_unity_content(&unity_dir, &output)?;
+            let objects = msl_assets::export_serialized_assets(&output, &objects_manifest)?;
+
+            let cropped = if sprite_catalog.is_file() {
+                if let Some(atlas) = objects.best_common_atlas() {
+                    let atlas_path = output.join(&atlas.output);
+                    Some(msl_assets::crop_and_index_common_sprites(
+                        &atlas_path,
+                        &sprite_catalog,
+                        &sprite_output,
+                        &sprite_manifest,
+                        sprite_origin.into(),
+                        &store,
+                        &sprite_store_manifest,
+                    )?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             let indexed = msl_assets::index_extracted_assets(&output, &store, &manifest)?;
-            println!("Extracted primary assets to {}", output.display());
+            println!("Unity files scanned: {}", extraction.files_scanned);
+            println!(
+                "UnityFS bundles extracted: {}",
+                extraction.bundles_extracted
+            );
+            println!("UnityFS entries extracted: {}", extraction.bundle_entries);
+            println!(
+                "Standalone Unity files preserved: {}",
+                extraction.passthrough_files
+            );
+            println!("Extracted bytes: {}", extraction.extracted_bytes);
+            println!("Serialized files: {}", objects.serialized_files);
+            println!("Serialized objects scanned: {}", objects.objects_scanned);
+            println!("Texture2D objects: {}", objects.texture_objects);
+            println!("Texture2D PNGs exported: {}", objects.textures_exported);
+            println!("TextAsset objects: {}", objects.text_asset_objects);
+            println!("TextAssets exported: {}", objects.text_assets_exported);
+            println!("Object export issues: {}", objects.issues.len());
+            if let Some(atlas) = objects.best_common_atlas() {
+                println!(
+                    "Common atlas: {} ({}x{}, {})",
+                    atlas.output, atlas.width, atlas.height, atlas.texture_format_name
+                );
+            } else {
+                println!("Common atlas: not found among decoded Texture2D objects");
+            }
+            match cropped {
+                Some((sprites, sprite_store)) => {
+                    println!("Common sprites cropped: {}", sprites.sprites.len());
+                    println!("Indexed sprite files: {}", sprite_store.files.len());
+                    println!("Sprite output: {}", sprite_output.display());
+                    println!("Sprite manifest: {}", sprite_manifest.display());
+                }
+                None if !sprite_catalog.is_file() => println!(
+                    "Common sprites: skipped because catalog does not exist: {}",
+                    sprite_catalog.display()
+                ),
+                None => println!("Common sprites: skipped because _common atlas was not decoded"),
+            }
+            println!("Object manifest: {}", objects_manifest.display());
+            println!("Extracted content: {}", output.display());
             println!("Indexed assets: {}", indexed.files.len());
             println!("Asset store: {}", store.display());
             println!("Asset manifest: {}", manifest.display());

@@ -15,6 +15,7 @@ lzma-rs.workspace = true
 msl-core = { path = "../msl-core" }
 serde.workspace = true
 serde_json.workspace = true
+texture2ddecoder.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

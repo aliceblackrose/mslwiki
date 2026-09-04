@@ -5,8 +5,7 @@ use std::{fs, path::Path};
 
 const NO_TARGET_PLATFORM: i32 = -2;
 const MAX_TEXTURE_PIXELS: usize = 268_435_456;
-type TextureBlockDecoder =
-    fn(&[u8], usize, usize, &mut [u32]) -> Result<(), &'static str>;
+type TextureBlockDecoder = fn(&[u8], usize, usize, &mut [u32]) -> Result<(), &'static str>;
 
 #[derive(Debug, Clone)]
 pub(crate) enum TextureData {

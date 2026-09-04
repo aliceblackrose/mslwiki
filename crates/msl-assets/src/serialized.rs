@@ -265,15 +265,17 @@ fn read_serialized_type(
     reader.skip(16)?;
 
     let fields = if enable_type_tree {
-        read_type_tree_fields(reader, version)?
+        let fields = read_type_tree_fields(reader, version)?;
+        if version >= 21 {
+            let dependency_count = reader.read_count("type dependency", MAX_TYPE_COUNT)?;
+            for _ in 0..dependency_count {
+                let _dependency = reader.read_i32()?;
+            }
+        }
+        fields
     } else {
         BTreeSet::new()
     };
-
-    let dependency_count = reader.read_count("type dependency", MAX_TYPE_COUNT)?;
-    for _ in 0..dependency_count {
-        let _dependency = reader.read_i32()?;
-    }
 
     Ok(SerializedType { class_id, fields })
 }
@@ -584,6 +586,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_object_table_without_type_tree_dependencies() {
+        let payload = b"release-object";
+        let bytes = build_serialized_file(payload, false);
+        let file = SerializedFile::parse(&bytes).unwrap();
+
+        assert!(!file.enable_type_tree);
+        assert_eq!(file.objects.len(), 1);
+        assert_eq!(file.objects[0].path_id, 123);
+        assert_eq!(file.object_bytes(&file.objects[0]).unwrap(), payload);
+    }
+
+    #[test]
     fn recovers_local_type_tree_field_names() {
         let bytes = build_serialized_file(b"object", true);
         let file = SerializedFile::parse(&bytes).unwrap();
@@ -623,9 +637,9 @@ mod tests {
             push_type_tree_node(&mut metadata, 1, type_offset, field_one_offset);
             push_type_tree_node(&mut metadata, 1, type_offset, field_two_offset);
             metadata.extend_from_slice(&strings);
+            push_i32(&mut metadata, 0);
         }
 
-        push_i32(&mut metadata, 0);
         push_i32(&mut metadata, 1);
         align_vec(&mut metadata, 4);
         metadata.extend_from_slice(&123_i64.to_le_bytes());

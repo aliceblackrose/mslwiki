@@ -394,12 +394,8 @@ fn copy_four_channel(encoded: &[u8], pixel_count: usize, order: ChannelOrder) ->
     for pixel in source.chunks_exact(4) {
         match order {
             ChannelOrder::Rgba => rgba.extend_from_slice(pixel),
-            ChannelOrder::Argb => {
-                rgba.extend_from_slice(&[pixel[1], pixel[2], pixel[3], pixel[0]])
-            }
-            ChannelOrder::Bgra => {
-                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]])
-            }
+            ChannelOrder::Argb => rgba.extend_from_slice(&[pixel[1], pixel[2], pixel[3], pixel[0]]),
+            ChannelOrder::Bgra => rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]),
         }
     }
     Ok(rgba)

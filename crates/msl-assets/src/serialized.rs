@@ -316,9 +316,7 @@ fn resolve_type_tree_string(local_strings: &[u8], offset: u32) -> Option<String>
     let offset = usize::try_from(offset).ok()?;
     let tail = local_strings.get(offset..)?;
     let length = tail.iter().position(|byte| *byte == 0)?;
-    std::str::from_utf8(&tail[..length])
-        .ok()
-        .map(str::to_owned)
+    std::str::from_utf8(&tail[..length]).ok().map(str::to_owned)
 }
 
 fn common_string(offset: u32) -> Option<&'static str> {

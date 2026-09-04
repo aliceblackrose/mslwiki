@@ -21,8 +21,6 @@ pub(crate) enum Endian {
 pub(crate) struct UnityVersion {
     pub major: u32,
     pub minor: u32,
-    pub patch: u32,
-    pub raw: String,
 }
 
 impl UnityVersion {
@@ -35,8 +33,6 @@ impl UnityVersion {
         Self {
             major: numbers.next().unwrap_or(0),
             minor: numbers.next().unwrap_or(0),
-            patch: numbers.next().unwrap_or(0),
-            raw,
         }
     }
 
@@ -72,14 +68,13 @@ pub(crate) struct ObjectInfo {
 
 #[derive(Debug)]
 pub(crate) struct SerializedFile<'a> {
-    pub version: u32,
     pub endian: Endian,
     pub unity_version: UnityVersion,
     pub target_platform: i32,
     pub enable_type_tree: bool,
     pub types: Vec<SerializedType>,
     pub objects: Vec<ObjectInfo>,
-    bytes: &'a [u8],
+    pub(crate) bytes: &'a [u8],
 }
 
 impl<'a> SerializedFile<'a> {
@@ -114,11 +109,14 @@ impl<'a> SerializedFile<'a> {
             let byte_size = usize::try_from(reader.read_u32()?)
                 .context("serialized object byte size does not fit usize")?;
             let type_id = reader.read_i32()?;
-            ensure!(type_id >= 0, "serialized object {path_id} has a negative type index");
+            ensure!(
+                type_id >= 0,
+                "serialized object {path_id} has a negative type index"
+            );
             let type_index = usize::try_from(type_id).expect("non-negative i32 fits usize");
-            let serialized_type = types
-                .get(type_index)
-                .with_context(|| format!("serialized object {path_id} references missing type {type_id}"))?;
+            let serialized_type = types.get(type_index).with_context(|| {
+                format!("serialized object {path_id} references missing type {type_id}")
+            })?;
             let relative_start = usize::try_from(relative_start)
                 .context("serialized object byte offset does not fit usize")?;
             let byte_start = header
@@ -143,7 +141,6 @@ impl<'a> SerializedFile<'a> {
         }
 
         Ok(Self {
-            version: header.version,
             endian: header.endian,
             unity_version,
             target_platform,
@@ -187,7 +184,10 @@ pub(crate) fn looks_like_serialized_file(bytes: &[u8]) -> bool {
 }
 
 fn parse_header(bytes: &[u8]) -> Result<SerializedHeader> {
-    ensure!(bytes.len() >= 48, "serialized file is smaller than a modern header");
+    ensure!(
+        bytes.len() >= 48,
+        "serialized file is smaller than a modern header"
+    );
     let mut reader = Reader::new(bytes, Endian::Big);
 
     let _legacy_metadata_size = reader.read_u32()?;
@@ -212,9 +212,16 @@ fn parse_header(bytes: &[u8]) -> Result<SerializedHeader> {
     let data_offset = reader.read_i64()?;
     let _unknown = reader.read_i64()?;
 
-    ensure!(file_size >= 0, "serialized file declares a negative file size");
-    ensure!(data_offset >= 0, "serialized file declares a negative data offset");
-    let file_size = usize::try_from(file_size).context("serialized file size does not fit usize")?;
+    ensure!(
+        file_size >= 0,
+        "serialized file declares a negative file size"
+    );
+    ensure!(
+        data_offset >= 0,
+        "serialized file declares a negative data offset"
+    );
+    let file_size =
+        usize::try_from(file_size).context("serialized file size does not fit usize")?;
     let data_offset =
         usize::try_from(data_offset).context("serialized data offset does not fit usize")?;
     ensure!(
@@ -222,9 +229,18 @@ fn parse_header(bytes: &[u8]) -> Result<SerializedHeader> {
         "serialized file is truncated: declares {file_size} bytes, has {}",
         bytes.len()
     );
-    ensure!(data_offset >= reader.position(), "serialized data starts inside its header");
-    ensure!(data_offset <= bytes.len(), "serialized data offset exceeds file size");
-    ensure!(metadata_size <= bytes.len(), "serialized metadata size exceeds file size");
+    ensure!(
+        data_offset >= reader.position(),
+        "serialized data starts inside its header"
+    );
+    ensure!(
+        data_offset <= bytes.len(),
+        "serialized data offset exceeds file size"
+    );
+    ensure!(
+        metadata_size <= bytes.len(),
+        "serialized metadata size exceeds file size"
+    );
 
     Ok(SerializedHeader {
         version,
@@ -300,7 +316,9 @@ fn resolve_type_tree_string(local_strings: &[u8], offset: u32) -> Option<String>
     let offset = usize::try_from(offset).ok()?;
     let tail = local_strings.get(offset..)?;
     let length = tail.iter().position(|byte| *byte == 0)?;
-    std::str::from_utf8(&tail[..length]).ok().map(str::to_owned)
+    std::str::from_utf8(&tail[..length])
+        .ok()
+        .map(str::to_owned)
 }
 
 fn common_string(offset: u32) -> Option<&'static str> {
@@ -427,14 +445,20 @@ impl<'a> Reader<'a> {
     }
 
     fn align(&mut self, alignment: usize) -> Result<()> {
-        ensure!(alignment.is_power_of_two(), "alignment must be a power of two");
+        ensure!(
+            alignment.is_power_of_two(),
+            "alignment must be a power of two"
+        );
         let mask = alignment - 1;
         let aligned = self
             .position
             .checked_add(mask)
             .map(|position| position & !mask)
             .context("reader alignment overflow")?;
-        ensure!(aligned <= self.bytes.len(), "reader alignment exceeds data size");
+        ensure!(
+            aligned <= self.bytes.len(),
+            "reader alignment exceeds data size"
+        );
         self.position = aligned;
         Ok(())
     }
@@ -533,7 +557,10 @@ impl<'a> Reader<'a> {
         let count = self.read_i32()?;
         ensure!(count >= 0, "{label} count is negative");
         let count = usize::try_from(count).expect("non-negative i32 fits usize");
-        ensure!(count <= maximum, "{label} count {count} exceeds safety limit {maximum}");
+        ensure!(
+            count <= maximum,
+            "{label} count {count} exceeds safety limit {maximum}"
+        );
         Ok(count)
     }
 }
@@ -549,7 +576,6 @@ mod tests {
         assert!(looks_like_serialized_file(&bytes));
 
         let file = SerializedFile::parse(&bytes).unwrap();
-        assert_eq!(file.version, 22);
         assert_eq!(file.unity_version.major, 6000);
         assert_eq!(file.unity_version.minor, 3);
         assert_eq!(file.types.len(), 1);

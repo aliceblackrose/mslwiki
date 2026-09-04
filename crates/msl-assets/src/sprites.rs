@@ -304,7 +304,10 @@ mod tests {
             .unwrap();
 
         let catalog = CommonSpriteData {
-            sprites: vec![sprite("same/name", 0, 0, 1, 1), sprite("same?name", 1, 0, 1, 1)],
+            sprites: vec![
+                sprite("same/name", 0, 0, 1, 1),
+                sprite("same?name", 1, 0, 1, 1),
+            ],
             sprite_indices: json!({}),
         };
 

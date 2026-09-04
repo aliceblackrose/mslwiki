@@ -1,7 +1,10 @@
 mod discovery;
 mod extractor;
+mod serialized;
 mod sprites;
 mod store;
+mod texture;
+mod unity_objects;
 
 pub use discovery::{
     AssetDiscoveryReport, UnityAssetEvidence, discover_asset_evidence,
@@ -13,6 +16,10 @@ pub use sprites::{
     crop_catalog_sprites, crop_common_sprites,
 };
 pub use store::{AssetStoreManifest, StoredAsset, index_extracted_assets};
+pub use unity_objects::{
+    AssetExportIssue, SerializedAssetExportReport, TextAssetExport, TextureExport,
+    export_serialized_assets,
+};
 
 use anyhow::{Context, Result};
 use msl_core::{ImportManifest, StagedKind};

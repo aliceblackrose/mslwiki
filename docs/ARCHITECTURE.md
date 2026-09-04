@@ -17,11 +17,16 @@ Owns MSL/Unity asset processing after staging. It parses `CommonSpriteData.txt`,
 The Unity backend is intentionally layered:
 
 1. **container layer** — detect UnityFS bundles, parse block/directory metadata, decompress blocks, and expose safe bundle entries;
-2. **serialized-file layer** — parse Unity serialized-file headers, object tables, type trees, and external resource references;
-3. **object layer** — decode only the object classes MSL needs first (`Texture2D`, `Sprite`, `TextAsset`, and selected `MonoBehaviour` payloads);
-4. **conversion layer** — emit deterministic PNG/JSON output for the rest of the pipeline.
+2. **serialized-file layer** — parse modern SerializedFile headers, object tables, TypeTrees, and object byte ranges;
+3. **resource layer** — resolve external streamed payloads such as `.resS` files with bounded offset/size reads;
+4. **object layer** — decode the object classes MSL currently needs (`Texture2D` and `TextAsset`);
+5. **conversion layer** — convert supported texture encodings to RGBA/PNG and text assets to deterministic files;
+6. **MSL atlas layer** — select the largest decoded `Texture2D` named `_common` and crop `CommonSpriteData` regions;
+7. **store layer** — hash exported files with BLAKE3 and deduplicate identical physical content.
 
-The first layer is implemented in-tree and does not invoke AssetRipper or another extraction executable.
+All of those layers are in-tree Rust code. The extraction path does not invoke AssetRipper or another Unity extraction executable.
+
+Additional Unity object classes should only be added when MSL data requires them. This keeps source-format parsing narrow and testable instead of turning the repository into a general-purpose editor/project exporter.
 
 ### `msl-core`
 
@@ -58,42 +63,118 @@ XAPK
                                           v
                                 merged Unity Data view
                                           |
-                              +-----------+-----------+
-                              |                       |
-                    native Unity extraction      sprite catalog
-                              |                       |
-                              +-----------+-----------+
                                           v
-                                    normalized data
+                                  UnityFS/raw files
+                                          |
+                                          v
+                                  SerializedFile
+                                          |
+                            +-------------+-------------+
+                            |                           |
+                       Texture2D                   TextAsset
+                            |                           |
+                       inline/.resS                      |
+                            |                           |
+                       texture decode                   |
+                            |                           |
+                            +-------------+-------------+
+                                          |
+                                          v
+                                   exported objects
+                                          |
+                               +----------+----------+
+                               |                     |
+                         _common atlas          other assets
+                               |
+                     CommonSpriteData crop
+                               |
+                               +----------+----------+
+                                          |
+                                          v
+                               BLAKE3 asset store
                                           |
                               +-----------+-----------+
                               |                       |
-                           SQLite                asset store
-                              |                       |
-                              +-----------+-----------+
-                                          v
-                                       Axum wiki
+                           SQLite                  Axum wiki
 ```
 
-## Asset extraction plan
+## Native Unity extraction
 
-The Unity extraction backend lives inside `msl-assets`; the website never depends on Unity parsing details.
+The extraction backend is MSL-focused and has explicit failure boundaries.
 
-1. Resolve the correct Unity data files from split APKs.
-2. Build a collision-checked merged Unity `Data` directory.
-3. Detect and unpack UnityFS bundles with the native Rust container parser.
-4. Preserve standalone serialized/resource files so no source data is discarded before object decoding exists.
-5. Parse serialized files and type trees for the object classes required by MSL.
-6. Resolve external resource streams such as `.resS` texture payloads.
-7. Decode supported textures and normalize images to PNG.
-8. Hash every exported object with BLAKE3.
-9. Use `CommonSpriteData.txt` to crop known atlas regions.
-10. Store logical asset keys separately from physical content-addressed files.
+### UnityFS container parsing
 
-The UnityFS container parser supports uncompressed, LZ4/LZ4HC, and LZMA blocks, validates ranges and decompressed sizes, handles block-info-at-end/alignment flags, and rejects bundle paths that could escape the extraction root.
+The container layer:
 
-The supplied build has 344 unique Unity `Data` paths with no collisions. `CommonSpriteData.txt` contains 627 sprite records; `_common` sprite names are referenced from hashed Unity files, which gives us the next link to resolve to the underlying atlas texture.
+- supports uncompressed, LZ4/LZ4HC, and LZMA blocks;
+- validates compressed/decompressed ranges and declared sizes;
+- handles block-info-at-end and block-alignment flags;
+- rejects path traversal and extraction collisions;
+- preserves non-bundle Unity files under `build/extracted/raw`.
+
+### SerializedFile parsing
+
+The semantic layer targets modern Unity SerializedFile v22+ files, including the supplied Unity `6000.3.12f1` build. It parses:
+
+- the extended v22 header;
+- metadata endianness;
+- Unity version and target platform;
+- serialized type records;
+- blob TypeTrees and their local/common string references;
+- aligned object tables and path IDs;
+- object byte ranges with overflow/bounds checks.
+
+Editor-only object layouts are rejected rather than guessed.
+
+### Texture2D decoding
+
+The Texture2D reader follows the modern Unity 6 layout, including post-2023.2 `Texture` base fields, conditional `m_MipmapLimitGroupName`, conditional `m_PlatformBlob`, and 64-bit streamed-resource offsets.
+
+The conversion layer uses pure-Rust decoding for the Android-relevant compression families:
+
+- ASTC;
+- ETC1/ETC2 and EAC;
+- ATC;
+- BC1/2/3/4/5/6/7;
+- PVRTC;
+- Crunch and Unity Crunch;
+- common uncompressed channel layouts.
+
+Texture decode errors are isolated to an object and recorded in `build/assets/unity-objects.json`; they do not discard successfully decoded neighboring objects.
+
+### Streamed resource resolution
+
+External texture payloads are resolved by resource basename with bundle-local files preferred over global matches. Ambiguous resource names fail explicitly. Offset + size ranges are checked against the resource file before allocating or reading.
+
+### MSL common atlas
+
+After semantic export, the pipeline chooses the largest decoded `Texture2D` whose `m_Name` is `_common`. If `build/assets/common-sprites.json` exists, `extract-assets` feeds that PNG directly into the existing Rust cropper and indexes the resulting sprite files.
+
+This semantic name check replaces the need to hardcode the current hashed atlas bundle filename. The earlier dependency scanner remains useful as evidence/debugging when a future game update changes the asset graph.
+
+## Output/manifests
+
+The extraction layers preserve source provenance rather than flattening everything into one directory:
+
+```text
+build/extracted/
+├── bundles/<source-bundle>/<bundle-entry>
+├── raw/<standalone-unity-file>
+└── objects/
+    ├── textures/*.png
+    └── text/*
+```
+
+Manifest roles:
+
+- `asset-candidates.json` — byte-level dependency evidence from the merged Unity view;
+- `unity-objects.json` — semantic object exports plus per-object failures;
+- `extracted-manifest.json` — content-addressed index of extracted files;
+- `sprites-manifest.json` — logical CommonSprite crop records;
+- `sprites-store-manifest.json` — content-addressed index of cropped sprites.
 
 ## Game-data plan
 
 `client_gamedata.pb` and `server_gamedata.pb` are treated as versioned source data. Once the game's actual protobuf tags and message relationships are recovered, generated `prost` structures belong in a source-format crate and are translated into stable domain structs before entering SQLite.
+
+With native Unity asset access in-tree, the remaining extraction work is primarily schema/data interpretation and asset-to-entity mapping rather than dependence on an external Unity ripper.

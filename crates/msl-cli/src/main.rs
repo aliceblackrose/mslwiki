@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use msl_db::Database;
+use msl_db::{CatalogSnapshot, Database};
 use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Debug, Parser)]
@@ -126,6 +126,14 @@ enum Command {
         store: PathBuf,
         #[arg(long, default_value = "build/assets/sprites-store-manifest.json")]
         store_manifest: PathBuf,
+    },
+
+    /// Load a normalized Astromon/skill/item catalog JSON file into SQLite.
+    LoadCatalog {
+        #[arg(default_value = "build/gamedata/catalog.json")]
+        input: PathBuf,
+        #[arg(long, default_value = "build/msl.sqlite")]
+        database: PathBuf,
     },
 
     /// Run the local wiki/API server.
@@ -408,6 +416,19 @@ async fn main() -> Result<()> {
             println!("Sprite output: {}", output.display());
             println!("Sprite manifest: {}", manifest.display());
             println!("Asset store: {}", store.display());
+        }
+        Command::LoadCatalog { input, database } => {
+            let bytes = std::fs::read(&input)
+                .with_context(|| format!("reading catalog {}", input.display()))?;
+            let catalog: CatalogSnapshot = serde_json::from_slice(&bytes)
+                .with_context(|| format!("parsing catalog {}", input.display()))?;
+            let db = Database::connect(&database).await?;
+            let counts = db.import_catalog(&catalog).await?;
+            println!("Catalog loaded: {}", input.display());
+            println!("Astromons: {}", counts.astromons);
+            println!("Skills: {}", counts.skills);
+            println!("Items: {}", counts.items);
+            println!("Database: {}", database.display());
         }
         Command::Serve { database, bind } => {
             let db = Database::connect(&database).await?;

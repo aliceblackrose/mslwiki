@@ -10,7 +10,7 @@ XAPK/APK
    -> deterministic Unity Data view
    -> sprite/dependency discovery
    -> metadata/type inventory
-   -> Unity primary-content extraction
+   -> native Rust UnityFS extraction
    -> Rust sprite cropping
    -> content-addressed asset store
    -> normalized SQLite
@@ -30,13 +30,14 @@ The importer and asset pipeline currently:
 7. scan Unity files for sprite names and cross-file dependencies;
 8. follow `_MainTex` evidence to identify likely large `_common` atlas files;
 9. inventory `Msg*`, manager, protobuf, monster, skill, item, and gamedata-related strings from `global-metadata.dat`;
-10. invoke a CLI-compatible AssetRipper build in primary/raw extraction mode;
-11. crop `CommonSpriteData` rectangles from an exported atlas PNG entirely in Rust;
-12. validate every crop against atlas bounds and support top-left or bottom-left origins;
-13. hash extracted/cropped assets and deduplicate identical files into a content-addressed BLAKE3 store;
-14. emit manifests mapping original paths and sprite names to stable stored objects;
-15. record the package import and staged-file inventory in SQLite;
-16. serve a minimal Axum wiki/API process.
+10. parse UnityFS bundles directly in Rust, including uncompressed, LZ4/LZ4HC, and LZMA blocks;
+11. safely unpack bundle directory entries while preserving standalone Unity files for later serialized-object decoding;
+12. crop `CommonSpriteData` rectangles from an atlas PNG entirely in Rust;
+13. validate every crop against atlas bounds and support top-left or bottom-left origins;
+14. hash extracted/cropped assets and deduplicate identical files into a content-addressed BLAKE3 store;
+15. emit manifests mapping original paths and sprite names to stable stored objects;
+16. record the package import and staged-file inventory in SQLite;
+17. serve a minimal Axum wiki/API process.
 
 Relevant inputs include:
 
@@ -97,18 +98,25 @@ cargo run -p mslwiki -- inspect-metadata
 
 This creates `build/gamedata/metadata-inventory.json` with candidate protobuf/message and manager type names that can be targeted by the schema recovery stage.
 
-## Extract and index Unity primary content
+## Extract and index Unity content
 
-Point `--asset-ripper` at a CLI-compatible AssetRipper executable:
+No external AssetRipper executable is required. The built-in Rust extractor reads the merged Unity `Data` directory directly:
 
 ```bash
-cargo run -p mslwiki -- extract-assets \
-  --asset-ripper "/path/to/AssetRipper"
+cargo run -p mslwiki -- extract-assets
 ```
 
-The adapter writes raw output to `build/extracted`, then indexes every exported file into the BLAKE3 store.
+The extractor currently owns the UnityFS container layer. It validates bundle bounds, handles block-info-at-end and alignment flags, decompresses uncompressed/LZ4/LZ4HC/LZMA blocks, rejects unsafe bundle paths, and writes:
 
-If primary content has already been extracted, indexing can be run independently:
+```text
+build/extracted/
+├── bundles/<source-bundle>/<bundle-entry>
+└── raw/<standalone-unity-file>
+```
+
+Every output is then indexed into the BLAKE3 content-addressed store. Serialized Unity object decoding is intentionally a separate layer; Texture2D-to-PNG export is the next native extraction stage rather than another external tool dependency.
+
+If content has already been extracted, indexing can be run independently:
 
 ```bash
 cargo run -p mslwiki -- index-assets
@@ -116,7 +124,7 @@ cargo run -p mslwiki -- index-assets
 
 ## Crop the common sprite atlas
 
-Once the `_common` atlas has been exported as PNG:
+Once the `_common` Texture2D decoder produces an atlas PNG:
 
 ```bash
 cargo run -p mslwiki -- crop-sprites \
@@ -150,11 +158,13 @@ The site is intentionally minimal at this stage: Astromon/skill/item pages need 
 
 ## Next extraction stages
 
-1. Validate the Unity 6000.3.12f1 extraction backend against the real `_common` atlas candidate.
-2. Run the Rust cropper against the real 627-sprite atlas and classify the output.
-3. Expand metadata inventory into field/tag recovery for the most important `Msg*` types.
-4. Decode `client_gamedata.pb` / `server_gamedata.pb` into stable `msl-core` domain types.
-5. Associate Astromon/skill/item IDs with extracted image assets.
-6. Generate Astromon, skill, item, dungeon, and update pages from normalized data.
+1. Validate the native UnityFS backend against the real Unity `6000.3.12f1` `_common` candidate.
+2. Add serialized-file/type-tree decoding for the MSL object classes we need first (`Texture2D`, `Sprite`, `TextAsset`, and `MonoBehaviour`).
+3. Decode the `_common` Texture2D, including external `.resS` stream data, directly to PNG.
+4. Run the Rust cropper against the real 627-sprite atlas and classify the output.
+5. Expand metadata inventory into field/tag recovery for the most important `Msg*` types.
+6. Decode `client_gamedata.pb` / `server_gamedata.pb` into stable `msl-core` domain types.
+7. Associate Astromon/skill/item IDs with extracted image assets.
+8. Generate Astromon, skill, item, dungeon, and update pages from normalized data.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

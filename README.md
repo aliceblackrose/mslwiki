@@ -15,38 +15,43 @@ XAPK/APK
    -> Texture2D/TextAsset export
    -> automatic _common atlas sprite cropping
    -> content-addressed asset store
-   -> normalized SQLite
-   -> Axum wiki + JSON API
+   -> normalized Astromon/skill/item catalog
+   -> SQLite
+   -> searchable Axum wiki + JSON API
 ```
 
 ## What works now
 
-The importer and asset pipeline currently:
+The importer, asset pipeline, and wiki currently:
 
-1. reads XAPK metadata and game version information;
-2. opens nested split APKs without holding an entire split in RAM;
-3. stages only Unity, IL2CPP, sprite, and game-data inputs;
-4. records source split + BLAKE3 hash for every staged file;
-5. creates a deterministic merged Unity `Data` directory with collision detection;
-6. parses `CommonSpriteData.txt` into a normalized sprite catalog;
-7. scans Unity files for sprite names and cross-file dependencies;
-8. follows `_MainTex` evidence to identify likely large `_common` atlas files;
-9. inventories `Msg*`, manager, protobuf, monster, skill, item, and gamedata-related strings from `global-metadata.dat`;
-10. parses UnityFS bundles directly in Rust, including uncompressed, LZ4/LZ4HC, and LZMA blocks;
-11. validates UnityFS ranges, block metadata, output collisions, and archive paths before writing files;
-12. parses modern Unity SerializedFile v22+ metadata, type tables, TypeTrees, and object tables;
-13. decodes MSL's Unity 6 `Texture2D` layout, including inline and external `.resS` image data;
-14. exports supported textures directly to PNG with pure-Rust decoders for ASTC, ETC/EAC, ATC, BCn, PVRTC, Crunch, and common raw formats;
-15. exports `TextAsset` objects as text or binary data;
-16. records per-object decode failures in `build/assets/unity-objects.json` without discarding successful exports;
-17. chooses the largest decoded texture named `_common` as the MSL common atlas;
-18. automatically crops every `CommonSpriteData` rectangle from that atlas when the sprite catalog is available;
-19. hashes extracted/cropped assets and deduplicates identical files into a content-addressed BLAKE3 store;
-20. emits manifests mapping original paths, Unity objects, and sprite names to stable stored objects;
-21. records the package import and staged-file inventory in SQLite;
-22. serves a minimal Axum wiki/API process.
+1. read XAPK metadata and game version information;
+2. open nested split APKs without holding an entire split in RAM;
+3. stage only Unity, IL2CPP, sprite, and game-data inputs;
+4. record source split + BLAKE3 hash for every staged file;
+5. create a deterministic merged Unity `Data` directory with collision detection;
+6. parse `CommonSpriteData.txt` into a normalized sprite catalog;
+7. scan Unity files for sprite names and cross-file dependencies;
+8. follow `_MainTex` evidence to identify likely large `_common` atlas files;
+9. inventory `Msg*`, manager, protobuf, monster, skill, item, and gamedata-related strings from `global-metadata.dat`;
+10. parse UnityFS bundles directly in Rust, including uncompressed, LZ4/LZ4HC, and LZMA blocks;
+11. validate UnityFS ranges, block metadata, output collisions, and archive paths before writing files;
+12. parse modern Unity SerializedFile v22+ metadata, type tables, TypeTrees, and object tables;
+13. decode MSL's Unity 6 `Texture2D` layout, including inline and external `.resS` image data;
+14. export supported textures directly to PNG with pure-Rust decoders for ASTC, ETC/EAC, ATC, BCn, PVRTC, Crunch, and common raw formats;
+15. export `TextAsset` objects as text or binary data;
+16. record per-object decode failures in `build/assets/unity-objects.json` without discarding successful exports;
+17. choose the largest decoded texture named `_common` as the MSL common atlas;
+18. automatically crop every `CommonSpriteData` rectangle from that atlas when the sprite catalog is available;
+19. hash extracted/cropped assets and deduplicate identical files into a content-addressed BLAKE3 store;
+20. emit manifests mapping original paths, Unity objects, and sprite names to stable stored objects;
+21. record package imports and staged-file inventories in SQLite;
+22. store normalized Astromon, skill, and item records in SQLite;
+23. search Astromons by name/ID, element, and rarity;
+24. search skills and items by name/ID/text;
+25. serve responsive Astromon, skill, item, and global-search pages;
+26. expose the same catalog through a JSON API.
 
-Relevant inputs include:
+Relevant package inputs include:
 
 - `assets/bin/Data/**`
 - `assets/bin/Data/Managed/Metadata/global-metadata.dat`
@@ -57,7 +62,7 @@ Relevant inputs include:
 
 The supplied `1.0.260722032` XAPK contains 347 staged files, 344 unique Unity `Data` paths, and 627 common sprite records.
 
-The dependency scanner identifies `8e2205a495a484cf3ae6ba8a2970aaca` as the supplied build's strong `_common` atlas candidate. This is derived from file references and `_MainTex` evidence rather than hardcoded into the importer. Semantic extraction now additionally identifies the atlas from its decoded `Texture2D.m_Name` value.
+The dependency scanner identifies `8e2205a495a484cf3ae6ba8a2970aaca` as the supplied build's strong `_common` atlas candidate. This is derived from file references and `_MainTex` evidence rather than hardcoded into the importer. Semantic extraction additionally identifies the atlas from its decoded `Texture2D.m_Name` value.
 
 Raw APK/XAPK files and extracted game assets are intentionally ignored by Git.
 
@@ -113,7 +118,7 @@ No AssetRipper executable or other external Unity extraction program is required
 cargo run -p mslwiki -- extract-assets
 ```
 
-That single command performs the MSL asset path end-to-end:
+That command performs the MSL asset path end-to-end:
 
 ```text
 build/unity/Data
@@ -188,6 +193,57 @@ Unity container and SerializedFile parsing are generic enough to discover other 
 
 The current SerializedFile parser targets modern Unity format v22+ and the supplied Unity `6000.3.12f1` build. It rejects editor-only layouts and invalid ranges instead of attempting unsafe recovery.
 
+## Wiki catalog
+
+The website reads a normalized catalog from SQLite. The stable interchange format is a JSON object with `astromons`, `skills`, and `items` arrays.
+
+A minimal example:
+
+```json
+{
+  "astromons": [
+    {
+      "id": 101,
+      "slug": "fire-mona",
+      "name": "Mona",
+      "element": "Fire",
+      "rarity": 4,
+      "variant": "Variant",
+      "role": "Attacker",
+      "hp": 1200,
+      "attack": 930,
+      "defense": 610,
+      "recovery": 720,
+      "skill_one_id": 201,
+      "portrait_asset": "assets/sprites/mona.png"
+    }
+  ],
+  "skills": [
+    {
+      "id": 201,
+      "slug": "flame-strike",
+      "name": "Flame Strike",
+      "description": "Deals fire damage.",
+      "skill_type": "Active",
+      "element": "Fire",
+      "cooldown": 3,
+      "icon_asset": "assets/sprites/flame-strike.png"
+    }
+  ],
+  "items": []
+}
+```
+
+Asset paths are relative to `build/`. For example, `assets/sprites/mona.png` is served from `build/assets/sprites/mona.png`.
+
+Load a normalized catalog into SQLite with:
+
+```bash
+cargo run -p mslwiki -- load-catalog build/gamedata/catalog.json
+```
+
+The game-data decoder is intended to emit this same contract, so the web/database layer does not need to change when automatic protobuf decoding is completed.
+
 ## Run the wiki
 
 ```bash
@@ -196,21 +252,35 @@ cargo run -p mslwiki -- serve
 
 Then open `http://127.0.0.1:3000`.
 
-API endpoints currently include:
+Pages include:
+
+- `/` — wiki home and global search;
+- `/search?q=...` — search Astromons, skills, and items;
+- `/astromons` — Astromon catalog with name/ID, element, and rarity filters;
+- `/astromons/<slug-or-id>` — Astromon details, stats, and skill links;
+- `/skills` and `/skills/<slug-or-id>`;
+- `/items` and `/items/<slug-or-id>`.
+
+JSON API endpoints include:
 
 - `GET /health`
 - `GET /api/v1/imports`
+- `GET /api/v1/search?q=...&kind=astromon|skill|item`
+- `GET /api/v1/astromons?q=...&element=...&rarity=...&page=...`
+- `GET /api/v1/astromons/<slug-or-id>`
+- `GET /api/v1/skills?q=...&page=...`
+- `GET /api/v1/skills/<slug-or-id>`
+- `GET /api/v1/items?q=...&page=...`
+- `GET /api/v1/items/<slug-or-id>`
 
-The site is intentionally minimal at this stage: Astromon/skill/item pages need the game-data schema and asset-to-entity mapping before they can be generated correctly.
+## Remaining data work
 
-## Next data stages
+The website and normalized storage/search contract are implemented. The remaining MSL-specific work is getting all live game records into that contract automatically:
 
-Asset extraction no longer depends on an external Unity ripper. The remaining project work is data interpretation rather than basic Unity asset access:
-
-1. validate the native decoder against the real supplied Unity `6000.3.12f1` package and inspect any entries in `unity-objects.json`;
-2. expand metadata inventory into field/tag recovery for the most important `Msg*` types;
-3. decode `client_gamedata.pb` / `server_gamedata.pb` into stable `msl-core` domain types;
-4. associate Astromon/skill/item IDs with exported image assets;
-5. generate Astromon, skill, item, dungeon, and update pages from normalized data.
+1. validate the native Unity decoder against the current real package and inspect entries in `unity-objects.json`;
+2. continue protobuf field/tag recovery for the important `Msg*` types;
+3. decode `client_gamedata.pb` / `server_gamedata.pb` into normalized Astromon/skill/item records;
+4. associate game entity IDs with exported image assets;
+5. extend the same catalog model to dungeons, quests, evolution chains, gems, and update history.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

@@ -1,4 +1,4 @@
-use crate::serialized::{Endian, ObjectReader, SerializedFile, SerializedType, UnityVersion};
+use crate::serialized::{ObjectReader, SerializedFile, SerializedType, UnityVersion};
 use anyhow::{Context, Result, bail, ensure};
 use image::{ImageFormat, RgbaImage};
 use std::{fs, path::Path};
@@ -63,7 +63,9 @@ pub(crate) fn parse_texture2d(
         let _ignore_master_texture_limit = reader.read_bool()?;
     }
 
-    if version.at_least(2022, 2) && type_tree_field_exists(file, object_type, "m_MipmapLimitGroupName") {
+    if version.at_least(2022, 2)
+        && type_tree_field_exists(file, object_type, "m_MipmapLimitGroupName")
+    {
         reader.align(4)?;
         let _mipmap_limit_group_name = reader.read_aligned_string()?;
     }
@@ -84,7 +86,10 @@ pub(crate) fn parse_texture2d(
 
     if version.at_least(2020, 2) && type_tree_field_exists(file, object_type, "m_PlatformBlob") {
         let blob_size = reader.read_i32()?;
-        ensure!(blob_size >= 0, "Texture2D platform blob has a negative size");
+        ensure!(
+            blob_size >= 0,
+            "Texture2D platform blob has a negative size"
+        );
         let blob_size = usize::try_from(blob_size).expect("non-negative i32 fits usize");
         ensure!(
             blob_size <= reader.remaining(),
@@ -95,7 +100,10 @@ pub(crate) fn parse_texture2d(
     }
 
     let image_data_size = reader.read_i32()?;
-    ensure!(image_data_size >= 0, "Texture2D image data has a negative size");
+    ensure!(
+        image_data_size >= 0,
+        "Texture2D image data has a negative size"
+    );
     let image_data_size = usize::try_from(image_data_size).expect("non-negative i32 fits usize");
     let data = if image_data_size == 0 {
         let offset = reader.read_i64()?;
@@ -160,7 +168,11 @@ fn read_gl_texture_settings(reader: &mut ObjectReader<'_>, version: &UnityVersio
     Ok(())
 }
 
-fn type_tree_field_exists(file: &SerializedFile<'_>, object_type: &SerializedType, field: &str) -> bool {
+fn type_tree_field_exists(
+    file: &SerializedFile<'_>,
+    object_type: &SerializedType,
+    field: &str,
+) -> bool {
     !file.enable_type_tree || object_type.has_field(field)
 }
 
@@ -185,10 +197,12 @@ pub(crate) fn decode_texture_rgba(texture: &Texture2D, encoded: &[u8]) -> Result
         5 => copy_four_channel(encoded, pixel_count, ChannelOrder::Argb)?,
         7 => decode_rgb565(encoded, pixel_count)?,
         8 => decode_rgb24(encoded, pixel_count, true)?,
+        9 | 66 => decode_r16(encoded, pixel_count)?,
         10 => decode_compressed(texture, encoded, texture2ddecoder::decode_bc1)?,
         11 => decode_compressed(texture, encoded, texture2ddecoder::decode_bc2)?,
         12 => decode_compressed(texture, encoded, texture2ddecoder::decode_bc3)?,
         14 => copy_four_channel(encoded, pixel_count, ChannelOrder::Bgra)?,
+        24 => decode_compressed(texture, encoded, texture2ddecoder::decode_bc6_unsigned)?,
         25 => decode_compressed(texture, encoded, texture2ddecoder::decode_bc7)?,
         26 => decode_compressed(texture, encoded, texture2ddecoder::decode_bc4)?,
         27 => decode_compressed(texture, encoded, texture2ddecoder::decode_bc5)?,
@@ -205,13 +219,17 @@ pub(crate) fn decode_texture_rgba(texture: &Texture2D, encoded: &[u8]) -> Result
         45 => decode_compressed(texture, encoded, texture2ddecoder::decode_etc2_rgb)?,
         46 => decode_compressed(texture, encoded, texture2ddecoder::decode_etc2_rgba1)?,
         47 => decode_compressed(texture, encoded, texture2ddecoder::decode_etc2_rgba8)?,
-        48 | 54 => decode_astc(texture, encoded, 4, 4)?,
-        49 | 55 => decode_astc(texture, encoded, 5, 5)?,
-        50 | 56 => decode_astc(texture, encoded, 6, 6)?,
-        51 | 57 => decode_astc(texture, encoded, 8, 8)?,
-        52 | 58 => decode_astc(texture, encoded, 10, 10)?,
-        53 | 59 => decode_astc(texture, encoded, 12, 12)?,
+        48 | 54 | 67 => decode_astc(texture, encoded, 4, 4)?,
+        49 | 55 | 68 => decode_astc(texture, encoded, 5, 5)?,
+        50 | 56 | 69 => decode_astc(texture, encoded, 6, 6)?,
+        51 | 57 | 70 => decode_astc(texture, encoded, 8, 8)?,
+        52 | 58 | 71 => decode_astc(texture, encoded, 10, 10)?,
+        53 | 59 | 72 => decode_astc(texture, encoded, 12, 12)?,
+        62 => decode_rg16(encoded, pixel_count)?,
         63 => decode_r8(encoded, pixel_count)?,
+        73 => decode_rg32(encoded, pixel_count)?,
+        74 => decode_rgb48(encoded, pixel_count)?,
+        75 => decode_rgba64(encoded, pixel_count)?,
         other => bail!(
             "Texture2D format {} ({other}) is not supported for PNG export",
             texture_format_name(other)
@@ -247,6 +265,97 @@ fn decode_r8(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
         rgba.extend_from_slice(&[*red, *red, *red, 255]);
     }
     Ok(rgba)
+}
+
+fn decode_r16(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
+    let byte_count = pixel_count
+        .checked_mul(2)
+        .context("R16 texture byte count overflow")?;
+    let source = encoded
+        .get(..byte_count)
+        .context("R16 texture data is truncated")?;
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for pixel in source.chunks_exact(2) {
+        let red = normalize_u16(pixel[0], pixel[1]);
+        rgba.extend_from_slice(&[red, red, red, 255]);
+    }
+    Ok(rgba)
+}
+
+fn decode_rg16(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
+    let byte_count = pixel_count
+        .checked_mul(2)
+        .context("RG16 texture byte count overflow")?;
+    let source = encoded
+        .get(..byte_count)
+        .context("RG16 texture data is truncated")?;
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for pixel in source.chunks_exact(2) {
+        rgba.extend_from_slice(&[pixel[0], pixel[1], 0, 255]);
+    }
+    Ok(rgba)
+}
+
+fn decode_rg32(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
+    let byte_count = pixel_count
+        .checked_mul(4)
+        .context("RG32 texture byte count overflow")?;
+    let source = encoded
+        .get(..byte_count)
+        .context("RG32 texture data is truncated")?;
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for pixel in source.chunks_exact(4) {
+        rgba.extend_from_slice(&[
+            normalize_u16(pixel[0], pixel[1]),
+            normalize_u16(pixel[2], pixel[3]),
+            0,
+            255,
+        ]);
+    }
+    Ok(rgba)
+}
+
+fn decode_rgb48(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
+    let byte_count = pixel_count
+        .checked_mul(6)
+        .context("RGB48 texture byte count overflow")?;
+    let source = encoded
+        .get(..byte_count)
+        .context("RGB48 texture data is truncated")?;
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for pixel in source.chunks_exact(6) {
+        rgba.extend_from_slice(&[
+            normalize_u16(pixel[0], pixel[1]),
+            normalize_u16(pixel[2], pixel[3]),
+            normalize_u16(pixel[4], pixel[5]),
+            255,
+        ]);
+    }
+    Ok(rgba)
+}
+
+fn decode_rgba64(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
+    let byte_count = pixel_count
+        .checked_mul(8)
+        .context("RGBA64 texture byte count overflow")?;
+    let source = encoded
+        .get(..byte_count)
+        .context("RGBA64 texture data is truncated")?;
+    let mut rgba = Vec::with_capacity(pixel_count * 4);
+    for pixel in source.chunks_exact(8) {
+        rgba.extend_from_slice(&[
+            normalize_u16(pixel[0], pixel[1]),
+            normalize_u16(pixel[2], pixel[3]),
+            normalize_u16(pixel[4], pixel[5]),
+            normalize_u16(pixel[6], pixel[7]),
+        ]);
+    }
+    Ok(rgba)
+}
+
+fn normalize_u16(low: u8, high: u8) -> u8 {
+    let value = u16::from_le_bytes([low, high]);
+    ((u32::from(value) * 255 + 32_767) / 65_535) as u8
 }
 
 fn decode_rgb24(encoded: &[u8], pixel_count: usize, bgr: bool) -> Result<Vec<u8>> {
@@ -285,8 +394,12 @@ fn copy_four_channel(encoded: &[u8], pixel_count: usize, order: ChannelOrder) ->
     for pixel in source.chunks_exact(4) {
         match order {
             ChannelOrder::Rgba => rgba.extend_from_slice(pixel),
-            ChannelOrder::Argb => rgba.extend_from_slice(&[pixel[1], pixel[2], pixel[3], pixel[0]]),
-            ChannelOrder::Bgra => rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]),
+            ChannelOrder::Argb => {
+                rgba.extend_from_slice(&[pixel[1], pixel[2], pixel[3], pixel[0]])
+            }
+            ChannelOrder::Bgra => {
+                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]])
+            }
         }
     }
     Ok(rgba)
@@ -390,7 +503,8 @@ pub(crate) fn save_png(path: &Path, texture: &Texture2D, rgba: Vec<u8>) -> Resul
     }
     let width = u32::try_from(texture.width).context("Texture2D width does not fit u32")?;
     let height = u32::try_from(texture.height).context("Texture2D height does not fit u32")?;
-    let image = RgbaImage::from_raw(width, height, rgba).context("building decoded Texture2D image")?;
+    let image =
+        RgbaImage::from_raw(width, height, rgba).context("building decoded Texture2D image")?;
     image
         .save_with_format(path, ImageFormat::Png)
         .with_context(|| format!("writing Texture2D PNG {}", path.display()))
@@ -444,6 +558,9 @@ pub(crate) fn texture_format_name(format: i32) -> &'static str {
         57 => "ASTC_RGBA_8x8",
         58 => "ASTC_RGBA_10x10",
         59 => "ASTC_RGBA_12x12",
+        60 => "ETC_RGB4_3DS",
+        61 => "ETC_RGBA8_3DS",
+        62 => "RG16",
         63 => "R8",
         64 => "ETC_RGB4Crunched",
         65 => "ETC2_RGBA8Crunched",
@@ -464,7 +581,7 @@ pub(crate) fn texture_format_name(format: i32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialized::{ObjectInfo, SerializedType};
+    use crate::serialized::{Endian, ObjectInfo, SerializedType};
     use std::collections::BTreeSet;
 
     #[test]
@@ -502,7 +619,6 @@ mod tests {
         };
         let file_bytes = object_bytes.clone();
         let file = SerializedFile {
-            version: 22,
             endian: Endian::Little,
             unity_version: UnityVersion::parse("6000.3.12f1".to_owned()),
             target_platform: 13,
@@ -526,6 +642,20 @@ mod tests {
             TextureData::Inline(data) => assert_eq!(data.len(), 16),
             TextureData::Streamed(_) => panic!("expected inline texture"),
         }
+    }
+
+    #[test]
+    fn normalizes_sixteen_bit_channels() {
+        let texture = Texture2D {
+            name: "r16".to_owned(),
+            width: 2,
+            height: 1,
+            format: 9,
+            mip_count: 1,
+            data: TextureData::Inline(Vec::new()),
+        };
+        let rgba = decode_texture_rgba(&texture, &[0, 0, 255, 255]).unwrap();
+        assert_eq!(rgba, vec![0, 0, 0, 255, 255, 255, 255, 255]);
     }
 
     fn build_unity6_texture_object() -> Vec<u8> {

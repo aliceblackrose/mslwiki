@@ -5,6 +5,8 @@ use std::{fs, path::Path};
 
 const NO_TARGET_PLATFORM: i32 = -2;
 const MAX_TEXTURE_PIXELS: usize = 268_435_456;
+type TextureBlockDecoder =
+    fn(&[u8], usize, usize, &mut [u32]) -> Result<(), &'static str>;
 
 #[derive(Debug, Clone)]
 pub(crate) enum TextureData {
@@ -275,7 +277,7 @@ fn decode_r16(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
         .get(..byte_count)
         .context("R16 texture data is truncated")?;
     let mut rgba = Vec::with_capacity(pixel_count * 4);
-    for pixel in source.chunks_exact(2) {
+    for pixel in source.as_chunks::<2>().0 {
         let red = normalize_u16(pixel[0], pixel[1]);
         rgba.extend_from_slice(&[red, red, red, 255]);
     }
@@ -290,7 +292,7 @@ fn decode_rg16(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
         .get(..byte_count)
         .context("RG16 texture data is truncated")?;
     let mut rgba = Vec::with_capacity(pixel_count * 4);
-    for pixel in source.chunks_exact(2) {
+    for pixel in source.as_chunks::<2>().0 {
         rgba.extend_from_slice(&[pixel[0], pixel[1], 0, 255]);
     }
     Ok(rgba)
@@ -304,7 +306,7 @@ fn decode_rg32(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
         .get(..byte_count)
         .context("RG32 texture data is truncated")?;
     let mut rgba = Vec::with_capacity(pixel_count * 4);
-    for pixel in source.chunks_exact(4) {
+    for pixel in source.as_chunks::<4>().0 {
         rgba.extend_from_slice(&[
             normalize_u16(pixel[0], pixel[1]),
             normalize_u16(pixel[2], pixel[3]),
@@ -323,7 +325,7 @@ fn decode_rgb48(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
         .get(..byte_count)
         .context("RGB48 texture data is truncated")?;
     let mut rgba = Vec::with_capacity(pixel_count * 4);
-    for pixel in source.chunks_exact(6) {
+    for pixel in source.as_chunks::<6>().0 {
         rgba.extend_from_slice(&[
             normalize_u16(pixel[0], pixel[1]),
             normalize_u16(pixel[2], pixel[3]),
@@ -342,7 +344,7 @@ fn decode_rgba64(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
         .get(..byte_count)
         .context("RGBA64 texture data is truncated")?;
     let mut rgba = Vec::with_capacity(pixel_count * 4);
-    for pixel in source.chunks_exact(8) {
+    for pixel in source.as_chunks::<8>().0 {
         rgba.extend_from_slice(&[
             normalize_u16(pixel[0], pixel[1]),
             normalize_u16(pixel[2], pixel[3]),
@@ -366,7 +368,7 @@ fn decode_rgb24(encoded: &[u8], pixel_count: usize, bgr: bool) -> Result<Vec<u8>
         .get(..byte_count)
         .context("RGB24 texture data is truncated")?;
     let mut rgba = Vec::with_capacity(pixel_count * 4);
-    for pixel in source.chunks_exact(3) {
+    for pixel in source.as_chunks::<3>().0 {
         if bgr {
             rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
         } else {
@@ -391,7 +393,7 @@ fn copy_four_channel(encoded: &[u8], pixel_count: usize, order: ChannelOrder) ->
         .get(..byte_count)
         .context("RGBA texture data is truncated")?;
     let mut rgba = Vec::with_capacity(byte_count);
-    for pixel in source.chunks_exact(4) {
+    for pixel in source.as_chunks::<4>().0 {
         match order {
             ChannelOrder::Rgba => rgba.extend_from_slice(pixel),
             ChannelOrder::Argb => rgba.extend_from_slice(&[pixel[1], pixel[2], pixel[3], pixel[0]]),
@@ -409,7 +411,7 @@ fn decode_rgb565(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
         .get(..byte_count)
         .context("RGB565 texture data is truncated")?;
     let mut rgba = Vec::with_capacity(pixel_count * 4);
-    for pixel in source.chunks_exact(2) {
+    for pixel in source.as_chunks::<2>().0 {
         let value = u16::from_le_bytes([pixel[0], pixel[1]]);
         let red = (((value >> 11) & 0x1f) * 255 / 31) as u8;
         let green = (((value >> 5) & 0x3f) * 255 / 63) as u8;
@@ -422,7 +424,7 @@ fn decode_rgb565(encoded: &[u8], pixel_count: usize) -> Result<Vec<u8>> {
 fn decode_compressed(
     texture: &Texture2D,
     encoded: &[u8],
-    decoder: fn(&[u8], usize, usize, &mut [u32]) -> Result<(), &'static str>,
+    decoder: TextureBlockDecoder,
 ) -> Result<Vec<u8>> {
     let mut pixels = vec![0_u32; texture.width * texture.height];
     decoder(encoded, texture.width, texture.height, &mut pixels)

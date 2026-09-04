@@ -91,9 +91,7 @@ async fn health() -> &'static str {
     "ok"
 }
 
-async fn imports(
-    State(state): State<AppState>,
-) -> WebResult<Json<Vec<ImportRecord>>> {
+async fn imports(State(state): State<AppState>) -> WebResult<Json<Vec<ImportRecord>>> {
     state
         .database
         .recent_imports(20)
@@ -138,7 +136,12 @@ async fn api_astromon(
     State(state): State<AppState>,
     AxumPath(slug): AxumPath<String>,
 ) -> WebResult<Response> {
-    match state.database.astromon(&slug).await.map_err(internal_error)? {
+    match state
+        .database
+        .astromon(&slug)
+        .await
+        .map_err(internal_error)?
+    {
         Some(value) => Ok(Json(value).into_response()),
         None => Ok(StatusCode::NOT_FOUND.into_response()),
     }
@@ -191,7 +194,11 @@ async fn api_item(
 }
 
 async fn home(State(state): State<AppState>) -> WebResult<Html<String>> {
-    let counts = state.database.catalog_counts().await.map_err(internal_error)?;
+    let counts = state
+        .database
+        .catalog_counts()
+        .await
+        .map_err(internal_error)?;
     let featured = state
         .database
         .astromons("", "", None, 12, 0)
@@ -331,6 +338,10 @@ async fn astromon_index(
         )
         .await
         .map_err(internal_error)?;
+    let rarity_filter = query
+        .rarity
+        .map(|value| value.to_string())
+        .unwrap_or_default();
 
     let cards = if values.is_empty() {
         empty_catalog_panel()
@@ -345,14 +356,7 @@ async fn astromon_index(
                 &[
                     ("q", query.q.as_str()),
                     ("element", query.element.as_str()),
-                    (
-                        "rarity",
-                        query
-                            .rarity
-                            .map(|value| value.to_string())
-                            .unwrap_or_default()
-                            .as_str(),
-                    ),
+                    ("rarity", rarity_filter.as_str()),
                 ]
             )
         )
@@ -396,13 +400,24 @@ async fn astromon_detail(
     State(state): State<AppState>,
     AxumPath(slug): AxumPath<String>,
 ) -> WebResult<Response> {
-    let Some(value) = state.database.astromon(&slug).await.map_err(internal_error)? else {
+    let Some(value) = state
+        .database
+        .astromon(&slug)
+        .await
+        .map_err(internal_error)?
+    else {
         return Ok(not_found("Astromon"));
     };
 
     let rarity = value
         .rarity
-        .map(|number| format!("{} <span class=\"stars\">{}</span>", number, "★".repeat(number.clamp(0, 6) as usize)))
+        .map(|number| {
+            format!(
+                "{} <span class=\"stars\">{}</span>",
+                number,
+                "★".repeat(number.clamp(0, 6) as usize)
+            )
+        })
         .unwrap_or_else(|| "Unknown".to_owned());
     let variant = value.variant.as_deref().unwrap_or("—");
     let role = value.role.as_deref().unwrap_or("—");
@@ -421,7 +436,8 @@ async fn astromon_detail(
     })
     .collect::<String>();
     let skills = if skills.is_empty() {
-        "<p class=\"muted\">Skill relationships have not been mapped for this record yet.</p>".to_owned()
+        "<p class=\"muted\">Skill relationships have not been mapped for this record yet.</p>"
+            .to_owned()
     } else {
         skills
     };
@@ -449,7 +465,11 @@ async fn astromon_detail(
 "#,
         media,
         element_class(&value.element),
-        escape_html(if value.element.is_empty() { "Unknown" } else { &value.element }),
+        escape_html(if value.element.is_empty() {
+            "Unknown"
+        } else {
+            &value.element
+        }),
         value.id,
         escape_html(&value.name),
         escape_html(variant),
@@ -460,7 +480,11 @@ async fn astromon_detail(
         stat_card("DEF", value.defense),
         stat_card("REC", value.recovery),
         value.id,
-        escape_html(if value.element.is_empty() { "Unknown" } else { &value.element }),
+        escape_html(if value.element.is_empty() {
+            "Unknown"
+        } else {
+            &value.element
+        }),
         escape_html(variant),
         escape_html(role),
         skills
@@ -518,10 +542,17 @@ async fn skill_detail(
         render_large_media(value.icon_asset.as_deref(), &value.name),
         value.id,
         escape_html(&value.name),
-        escape_html(if value.description.is_empty() { "No description decoded yet." } else { &value.description }),
+        escape_html(if value.description.is_empty() {
+            "No description decoded yet."
+        } else {
+            &value.description
+        }),
         option_text(value.skill_type.as_deref()),
         option_text(value.element.as_deref()),
-        value.cooldown.map(|value| value.to_string()).unwrap_or_else(|| "—".to_owned())
+        value
+            .cooldown
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "—".to_owned())
     );
     Ok(Html(layout(&format!("{} · MSL Wiki", value.name), &body)).into_response())
 }
@@ -576,21 +607,28 @@ async fn item_detail(
         render_large_media(value.icon_asset.as_deref(), &value.name),
         value.id,
         escape_html(&value.name),
-        escape_html(if value.description.is_empty() { "No description decoded yet." } else { &value.description }),
+        escape_html(if value.description.is_empty() {
+            "No description decoded yet."
+        } else {
+            &value.description
+        }),
         option_text(value.item_type.as_deref()),
-        value.rarity.map(|value| format!("{value}★")).unwrap_or_else(|| "—".to_owned())
+        value
+            .rarity
+            .map(|value| format!("{value}★"))
+            .unwrap_or_else(|| "—".to_owned())
     );
     Ok(Html(layout(&format!("{} · MSL Wiki", value.name), &body)).into_response())
 }
 
 async fn site_css() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], SITE_CSS)
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        SITE_CSS,
+    )
 }
 
-async fn media(
-    State(state): State<AppState>,
-    AxumPath(path): AxumPath<String>,
-) -> Response {
+async fn media(State(state): State<AppState>, AxumPath(path): AxumPath<String>) -> Response {
     let relative = FilePath::new(&path);
     if relative.as_os_str().is_empty()
         || !relative
@@ -638,7 +676,11 @@ fn not_found(kind: &str) -> Response {
         "<section class=\"empty-state page-empty\"><h1>{} not found</h1><p>The requested catalog record does not exist.</p><a class=\"primary-button\" href=\"/\">Back home</a></section>",
         escape_html(kind)
     );
-    (StatusCode::NOT_FOUND, Html(layout("Not found · MSL Wiki", &body))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Html(layout("Not found · MSL Wiki", &body)),
+    )
+        .into_response()
 }
 
 fn layout(title: &str, body: &str) -> String {
@@ -670,7 +712,7 @@ fn layout(title: &str, body: &str) -> String {
 fn empty_catalog_panel() -> String {
     r#"<div class="empty-state">
 <h3>The wiki shell is ready; the catalog is empty.</h3>
-<p>Load a normalized game-data snapshot with <code>mslwiki load-catalog</code>. The extraction pipeline can target the same schema as protobuf decoding is completed.</p>
+<p>The extraction pipeline will populate these records as the protobuf game-data decoder lands. The database schema and public import API are ready now.</p>
 </div>"#
         .to_owned()
 }
@@ -688,7 +730,11 @@ fn render_astromon_card(value: &AstromonRecord) -> String {
         escape_html(&value.slug),
         element_class(&value.element),
         render_card_media(value.portrait_asset.as_deref(), &value.name),
-        escape_html(if value.element.is_empty() { "Unknown" } else { &value.element }),
+        escape_html(if value.element.is_empty() {
+            "Unknown"
+        } else {
+            &value.element
+        }),
         rarity,
         escape_html(&value.name),
         escape_html(
@@ -769,7 +815,10 @@ fn media_url(path: &str) -> String {
     if path.starts_with("http://") || path.starts_with("https://") || path.starts_with('/') {
         path.to_owned()
     } else {
-        format!("/media/{}", path.replace('\\', "/").trim_start_matches("./"))
+        format!(
+            "/media/{}",
+            path.replace('\\', "/").trim_start_matches("./")
+        )
     }
 }
 
@@ -795,7 +844,10 @@ fn list_page_header(kicker: &str, title: &str, query: &str, action: &str, conten
         if query.is_empty() {
             String::new()
         } else {
-            format!("<a class=\"ghost-button\" href=\"{}\">Clear</a>", escape_html(action))
+            format!(
+                "<a class=\"ghost-button\" href=\"{}\">Clear</a>",
+                escape_html(action)
+            )
         },
         content
     )
@@ -850,7 +902,10 @@ fn pagination(base: &str, page: i64, has_next: bool, params: &[(&str, &str)]) ->
     format!(
         "<nav class=\"pagination\">{}<span>Page {page}</span>{}</nav>",
         if page > 1 {
-            format!("<a href=\"{}\">← Previous</a>", escape_html(&href(page - 1)))
+            format!(
+                "<a href=\"{}\">← Previous</a>",
+                escape_html(&href(page - 1))
+            )
         } else {
             "<span></span>".to_owned()
         },
